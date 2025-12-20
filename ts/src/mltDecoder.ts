@@ -77,7 +77,7 @@ export default function decodeTile(
 
         // Decode columns from streams
         let idVector: IntVector | null = null;
-        let geometryVector: GeometryVector | GpuVector | null = null;
+        const geometryVector: GeometryVector | GpuVector | null = null;
         let deferredGeometry: DeferredGeometryColumn | null = null;
         const propertyVectors: Vector[] = [];
         let numFeatures = 0;

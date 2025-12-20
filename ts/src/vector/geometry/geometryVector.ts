@@ -1,5 +1,5 @@
 import type TopologyVector from "../../vector/geometry/topologyVector";
-import { convertGeometryVector } from "./geometryVectorConverter";
+import { convertGeometryVector, convertSingleGeometry } from "./geometryVectorConverter";
 import { decodeZOrderCurve } from "./zOrderCurve";
 import { type GEOMETRY_TYPE } from "./geometryType";
 import { type VertexBufferType } from "./vertexBufferType";
@@ -83,6 +83,25 @@ export abstract class GeometryVector implements Iterable<Geometry> {
 
     getGeometries(): CoordinatesArray[] {
         return convertGeometryVector(this);
+    }
+
+    /**
+     * Returns a single geometry at the specified index.
+     * Uses lazy conversion - only the requested geometry is materialized as JS objects.
+     *
+     * @param index - The index of the geometry to retrieve
+     * @returns The geometry object containing coordinates and type
+     * @throws RangeError if index is out of bounds
+     */
+    getGeometry(index: number): Geometry {
+        if (index < 0 || index >= this.numGeometries) {
+            throw new RangeError(
+                `Geometry index ${index} out of bounds. Valid range: 0 to ${this.numGeometries - 1}`,
+            );
+        }
+        const coordinates = convertSingleGeometry(this, index);
+        const type = this.geometryType(index);
+        return { coordinates, type };
     }
 
     get mortonSettings(): MortonSettings | undefined {
