@@ -8,24 +8,22 @@ const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const tilePaths = [
     path.resolve(currentDir, "../../test/expected/tag0x01/omt/14_8298_10748.mlt"),
     path.resolve(currentDir, "../../test/expected/tag0x01/omt/11_1063_1367.mlt"),
+    path.resolve(currentDir, "../../test/expected/tag0x01/amazon/9_259_176.mlt"), // Deferred Geometry
 ];
 const tileBuffers = tilePaths.map((tilePath) => new Uint8Array(readFileSync(tilePath)));
 
 describe("MLT decoder performance", () => {
-    bench("Decode properties only (deferred geometry)", () => {
+    bench("Iterate properties only (no coordinates)", () => {
         let sum = 0;
 
         for (const buffer of tileBuffers) {
             const tables = decodeTile(buffer);
             for (const table of tables) {
-                sum += table.numFeatures;
-
-                const propertyVectors = table.propertyVectors ?? [];
-                if (propertyVectors.length > 0) {
-                    const value = propertyVectors[0].getValue(0);
-                    if (value !== null && value !== undefined) {
-                        sum++;
-                    }
+                const layer = table.getLayer();
+                for (let i = 0; i < layer.length; i++) {
+                    const feature = layer.feature(i);
+                    sum += feature.geometry.type;
+                    sum += Object.keys(feature.properties).length;
                 }
             }
         }
@@ -41,7 +39,12 @@ describe("MLT decoder performance", () => {
         for (const buffer of tileBuffers) {
             const tables = decodeTile(buffer);
             for (const table of tables) {
-                sum += table.getFeatures().length;
+                const layer = table.getLayer();
+                for (let i = 0; i < layer.length; i++) {
+                    const feature = layer.feature(i);
+                    sum += feature.geometry.coordinates.length;
+                    sum += Object.keys(feature.properties).length;
+                }
             }
         }
 
