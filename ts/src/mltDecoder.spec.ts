@@ -42,7 +42,7 @@ describe("FeatureTable", () => {
         expect(table.extent).toBe(4096);
 
         let featureCount = 0;
-        for (const feature of table) {
+        for (const feature of table.getFeatures()) {
             expect(feature.geometry).toBeTruthy();
             expect(feature.geometry.coordinates).toBeInstanceOf(Array);
             expect(feature.geometry.coordinates.length).toBeGreaterThan(0);
@@ -175,7 +175,7 @@ function comparePlainGeometryEncodedTile(mlt: FeatureTable[], mvt: VectorTile) {
 function compareId(mltFeature: Feature, mvtFeature: VectorTileFeature, idWithinMaxSafeInteger: boolean) {
     if (!mvtFeature.id) {
         /* Java MVT library in the MVT converter decodes zero for undefined ids */
-        expect([0, null, 0n]).toContain(mltFeature.id);
+        expect([0, null, undefined, 0n]).toContain(mltFeature.id);
     } else {
         const mltFeatureId = mltFeature.id;
         /* For const and sequence vectors the decoder can return bigint compared to the vector-tile-js library */

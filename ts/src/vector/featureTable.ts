@@ -5,11 +5,26 @@ import { IntFlatVector } from "./flat/intFlatVector";
 import { DoubleFlatVector } from "./flat/doubleFlatVector";
 import { IntSequenceVector } from "./sequence/intSequenceVector";
 import { IntConstVector } from "./constant/intConstVector";
+import { LongFlatVector } from "./flat/longFlatVector";
+import { LongSequenceVector } from "./sequence/longSequenceVector";
+import { LongConstVector } from "./constant/longConstVector";
 import { type GpuVector } from "./geometry/gpuVector";
 import type { DeferredGeometryColumn } from "../decoding/deferredGeometryColumn";
 import { convertSingleGeometry } from "./geometry/geometryVectorConverter";
 
 type GeometryVectorResolver = () => GeometryVector | GpuVector;
+
+export interface VectorTileFeature {
+    id?: number | bigint;
+    geometry: Geometry;
+    properties: { [key: string]: unknown };
+}
+
+export interface VectorTileLayer {
+    length: number;
+    feature(index: number): VectorTileFeature;
+    [Symbol.iterator](): Iterator<VectorTileFeature>;
+}
 
 class LazyGeometryCoordinatesResolver {
     // Conservative heuristic defaults:
@@ -27,7 +42,7 @@ class LazyGeometryCoordinatesResolver {
     private nearSequentialCount = 0;
     private coordinateAccessCount = 0;
 
-    constructor(private readonly resolveVector: GeometryVectorResolver) {}
+    constructor(private readonly resolveVector: GeometryVectorResolver) { }
 
     getCoordinates(index: number): CoordinatesArray {
         if (this.allGeometries !== null) {
@@ -85,7 +100,7 @@ class LazyGeometryCoordinatesResolver {
 }
 
 export interface Feature {
-    id: number | bigint;
+    id?: number | bigint;
     geometry: Geometry;
     properties: { [key: string]: unknown };
 }
@@ -96,16 +111,20 @@ export default class FeatureTable implements Iterable<Feature> {
     private _deferredGeometry: DeferredGeometryColumn | null;
 
     // Either _geometryVector or _deferredGeometry is expected to be set.
+    private readonly _extent: number;
+
+    // Either _geometryVector or _deferredGeometry is expected to be set.
     constructor(
         private readonly _name: string,
         geometryVector: GeometryVector | GpuVector | null,
         private readonly _idVector?: IntVector,
         private readonly _propertyVectors?: Vector[],
-        private readonly _extent = 4096,
+        extent = 4096,
         deferredGeometry: DeferredGeometryColumn | null = null,
     ) {
         this._geometryVector = geometryVector;
         this._deferredGeometry = deferredGeometry;
+        this._extent = extent;
     }
 
     get name(): string {
@@ -139,7 +158,7 @@ export default class FeatureTable implements Iterable<Feature> {
         while (index < this.numFeatures) {
             let id;
             if (this.idVector) {
-                id = this.containsMaxSaveIntegerValues(this.idVector)
+                id = this.canSafelyConvertToNumber(this.idVector)
                     ? Number(this.idVector.getValue(index))
                     : this.idVector.getValue(index);
             }
@@ -188,7 +207,7 @@ export default class FeatureTable implements Iterable<Feature> {
         for (let i = 0; i < numFeatures; i++) {
             let id;
             if (this.idVector) {
-                id = this.containsMaxSaveIntegerValues(this.idVector)
+                id = this.canSafelyConvertToNumber(this.idVector)
                     ? Number(this.idVector.getValue(i))
                     : this.idVector.getValue(i);
             }
@@ -198,8 +217,6 @@ export default class FeatureTable implements Iterable<Feature> {
             const featureIndex = i;
             const geometry: Geometry = {
                 type: geometryType,
-                // Lazily evaluates and caches the geometry coordinates.
-                // Coordinates are only materialized when accessed for the first time.
                 get coordinates() {
                     if (cachedCoordinates !== null) {
                         return cachedCoordinates;
@@ -222,40 +239,120 @@ export default class FeatureTable implements Iterable<Feature> {
 
             features.push({ id, geometry, properties });
         }
+
         return features;
+    }
+
+    /**
+     * Returns a "Virtual Layer" object that creates features on demand.
+     * This avoids allocating 10,000+ objects upfront.
+     * Conforms to the expected interface similar to mapbox-vector-tile.
+     */
+    getLayer(): VectorTileLayer {
+        const numFeatures = this.numFeatures;
+        const coordinatesResolver = new LazyGeometryCoordinatesResolver(() => this.resolveGeometryVector());
+        // Capture 'this' for the closure
+        // eslint-disable-next-line @typescript-eslint/no-this-alias
+        const self = this;
+
+        return {
+            length: numFeatures,
+            feature: (index: number): VectorTileFeature => {
+                if (index < 0 || index >= numFeatures) {
+                    throw new RangeError(`Feature index ${index} out of bounds.`);
+                }
+
+                let id;
+                if (self.idVector) {
+                    id = self.canSafelyConvertToNumber(self.idVector)
+                        ? Number(self.idVector.getValue(index))
+                        : self.idVector.getValue(index);
+                }
+
+                const geometryType = self.getGeometryType(index);
+                let cachedCoordinates: CoordinatesArray | null = null;
+
+                const geometry: Geometry = {
+                    type: geometryType,
+                    // Lazily evaluates and caches the geometry coordinates.
+                    get coordinates() {
+                        if (cachedCoordinates !== null) {
+                            return cachedCoordinates;
+                        }
+
+                        cachedCoordinates = coordinatesResolver.getCoordinates(index);
+                        return cachedCoordinates;
+                    },
+                };
+
+                const properties: { [key: string]: unknown } = {};
+                for (const propertyColumn of self.propertyVectors) {
+                    if (!propertyColumn) continue;
+                    const columnName = propertyColumn.name;
+                    const propertyValue = propertyColumn.getValue(index);
+                    if (propertyValue !== null) {
+                        properties[columnName] = propertyValue;
+                    }
+                }
+
+                return { id, geometry, properties };
+            },
+
+            *[Symbol.iterator]() {
+                for (let i = 0; i < numFeatures; i++) {
+                    yield this.feature(i);
+                }
+            },
+        };
     }
 
     private getGeometryType(index: number): number {
         if (this._geometryVector) {
             return this._geometryVector.geometryType(index);
         }
-
-        if (!this._deferredGeometry) {
-            return this.missingGeometryVector();
+        if (this._deferredGeometry) {
+            return this._deferredGeometry.getGeometryType(index);
         }
-
-        return this._deferredGeometry.getGeometryType(index);
-    }
-
-    private containsMaxSaveIntegerValues(intVector: IntVector) {
-        return (
-            intVector instanceof IntFlatVector ||
-            (intVector instanceof IntConstVector && intVector instanceof IntSequenceVector) ||
-            intVector instanceof DoubleFlatVector
-        );
+        return this.missingGeometryVector();
     }
 
     private resolveGeometryVector(): GeometryVector | GpuVector {
-        if (!this._geometryVector) {
-            if (!this._deferredGeometry) {
-                return this.missingGeometryVector();
-            }
-
-            this._geometryVector = this._deferredGeometry.get();
-            this._deferredGeometry = null;
+        if (this._geometryVector) {
+            return this._geometryVector;
         }
 
-        return this._geometryVector;
+        if (this._deferredGeometry) {
+            // Resolve and drop the deferred column to release memory.
+            this._geometryVector = this._deferredGeometry.get();
+            this._deferredGeometry = null;
+            return this._geometryVector;
+        }
+
+        throw new Error("FeatureTable must have either geometryVector or deferredGeometry");
+    }
+
+    /**
+     * Returns true if the vector values can be safely represented as JavaScript Number.
+     * Int32-based vectors (IntFlatVector, IntSequenceVector, IntConstVector) and doubles are safe.
+     * BigInt64-based vectors (LongFlatVector, LongSequenceVector, LongConstVector) may exceed
+     * Number.MAX_SAFE_INTEGER and should remain as bigint.
+     */
+    private canSafelyConvertToNumber(vector: IntVector): boolean {
+        // Int32-based vectors are always safe (32 bits < 53 bits of Number precision)
+        if (vector instanceof IntFlatVector ||
+            vector instanceof IntSequenceVector ||
+            vector instanceof IntConstVector ||
+            vector instanceof DoubleFlatVector) {
+            return true;
+        }
+        // BigInt64-based vectors may exceed MAX_SAFE_INTEGER
+        if (vector instanceof LongFlatVector ||
+            vector instanceof LongSequenceVector ||
+            vector instanceof LongConstVector) {
+            return false;
+        }
+        // Unknown vector type - keep as-is to be safe
+        return false;
     }
 
     private missingGeometryVector(): never {
