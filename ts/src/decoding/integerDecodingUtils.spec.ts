@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+    decodeFastPfor,
     decodeVarintInt32,
     decodeVarintInt64,
     decodeVarintFloat64,
@@ -29,6 +30,7 @@ import {
 } from "./integerDecodingUtils";
 import IntWrapper from "./intWrapper";
 import {
+    encodeFastPfor,
     encodeVarintInt32,
     encodeVarintInt64,
     encodeDeltaInt32,
@@ -302,5 +304,132 @@ describe("IntegerDecodingUtils", () => {
         const decoded = decodeRleDeltaInt32(encoded.data, encoded.runs, encoded.numTotalValues);
         // The decoder is adding a 0 at the start
         expect(Array.from(decoded)).toEqual([0, 1, 2, 3, 4]);
+    });
+});
+
+function readInt32BigEndian(buf: Uint8Array, offset: number): number {
+    return ((buf[offset] << 24) | (buf[offset + 1] << 16) | (buf[offset + 2] << 8) | buf[offset + 3]) | 0;
+}
+
+function writeInt32BigEndian(buf: Uint8Array, offset: number, value: number): void {
+    buf[offset] = (value >>> 24) & 0xff;
+    buf[offset + 1] = (value >>> 16) & 0xff;
+    buf[offset + 2] = (value >>> 8) & 0xff;
+    buf[offset + 3] = value & 0xff;
+}
+
+function alignedCount(n: number): number {
+    return n - (n % 256);
+}
+
+describe("decodeFastPfor (wire format and hardening)", () => {
+    describe("alignedLength header", () => {
+        it("writes alignedLength = floor(n/256)*256 for a variety of sizes", () => {
+            const sizes = [0, 1, 17, 100, 255, 256, 257, 511, 512, 513, 66000];
+
+            for (const n of sizes) {
+                const values = new Int32Array(n);
+                for (let i = 0; i < n; i++) values[i] = i % 1000;
+
+                const encoded = encodeFastPfor(values);
+                const a = readInt32BigEndian(encoded, 0);
+
+                expect(a).toBe(alignedCount(n));
+            }
+        });
+
+        it("does not depend on input ArrayBuffer alignment (prefix bytes)", () => {
+            const values = new Int32Array(512);
+            for (let i = 0; i < values.length; i++) values[i] = i % 1000;
+
+            const encoded = encodeFastPfor(values);
+            const prefix = new Uint8Array([0xaa, 0xbb, 0xcc]);
+            const suffix = new Uint8Array([0xff, 0xff, 0xff, 0xff, 0xff, 0xff]);
+
+            const buffer = new Uint8Array(prefix.length + encoded.length + suffix.length);
+            buffer.set(prefix, 0);
+            buffer.set(encoded, prefix.length);
+            buffer.set(suffix, prefix.length + encoded.length);
+
+            const offset = new IntWrapper(prefix.length);
+            const decoded = decodeFastPfor(buffer, values.length, encoded.length, offset);
+
+            expect(decoded).toEqual(values);
+            expect(offset.get()).toBe(prefix.length + encoded.length);
+            expect(buffer.subarray(prefix.length + encoded.length)).toEqual(suffix);
+        });
+    });
+
+    describe("corruption hardening", () => {
+        it("throws on corrupted alignedLength (negative: 0xFFFFFFFF) and does not advance offset", () => {
+            const values = new Int32Array(512);
+            for (let i = 0; i < values.length; i++) values[i] = i;
+
+            const encoded = encodeFastPfor(values);
+            writeInt32BigEndian(encoded, 0, -1);
+
+            const offset = new IntWrapper(0);
+            expect(() => decodeFastPfor(encoded, values.length, encoded.length, offset)).toThrow();
+            expect(offset.get()).toBe(0);
+        });
+
+        it("throws on corrupted alignedLength (not multiple of 256: 255) and does not advance offset", () => {
+            const values = new Int32Array(512);
+            for (let i = 0; i < values.length; i++) values[i] = i;
+
+            const encoded = encodeFastPfor(values);
+            writeInt32BigEndian(encoded, 0, 255);
+
+            const offset = new IntWrapper(0);
+            expect(() => decodeFastPfor(encoded, values.length, encoded.length, offset)).toThrow();
+            expect(offset.get()).toBe(0);
+        });
+
+        it("throws when alignedLength > outputLength and does not advance offset", () => {
+            const values = new Int32Array(512);
+            for (let i = 0; i < values.length; i++) values[i] = i;
+
+            const encoded = encodeFastPfor(values);
+            writeInt32BigEndian(encoded, 0, 768);
+
+            const offset = new IntWrapper(0);
+            expect(() => decodeFastPfor(encoded, values.length, encoded.length, offset)).toThrow();
+            expect(offset.get()).toBe(0);
+        });
+
+        it("throws on truncated header (less than 4 bytes) and does not advance offset", () => {
+            const values = new Int32Array(512);
+            for (let i = 0; i < values.length; i++) values[i] = i;
+
+            const encoded = encodeFastPfor(values);
+            const truncated = encoded.slice(0, 3);
+
+            const offset = new IntWrapper(0);
+            expect(() => decodeFastPfor(truncated, values.length, truncated.length, offset)).toThrow();
+            expect(offset.get()).toBe(0);
+        });
+
+        it("throws when alignedLength > 0 but buffer ends right after header and does not advance offset", () => {
+            const values = new Int32Array(512);
+            for (let i = 0; i < values.length; i++) values[i] = i;
+
+            const encoded = encodeFastPfor(values);
+            const truncated = encoded.slice(0, 4);
+
+            const offset = new IntWrapper(0);
+            expect(() => decodeFastPfor(truncated, values.length, truncated.length, offset)).toThrow();
+            expect(offset.get()).toBe(0);
+        });
+
+        it("throws when declared byteLength is too short for the stream and does not advance offset", () => {
+            const values = new Int32Array(512);
+            for (let i = 0; i < values.length; i++) values[i] = i % 1000;
+
+            const encoded = encodeFastPfor(values);
+
+            const offset = new IntWrapper(0);
+            expect(() => decodeFastPfor(encoded, values.length, encoded.length - 4, offset)).toThrow();
+            expect(offset.get()).toBe(0);
+        });
     });
 });
