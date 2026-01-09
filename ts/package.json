@@ -16,7 +16,7 @@
   "scripts": {
     "build": "tsc",
     "generate:fastpfor-unpack": "node --experimental-strip-types --no-warnings scripts/generateFastPforUnpack.ts",
-    "test": "vitest run ./src --coverage --coverage.reportOnFailure",
+    "test": "vitest run ./src ./scripts --coverage --coverage.reportOnFailure",
     "lint": "eslint",
     "format": "prettier --write \"**/*.ts\""
   },

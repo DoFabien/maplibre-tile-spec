@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
-const DEFAULT_OUT_FILE = resolve(process.cwd(), "src/decoding/fastPforUnpack.ts");
+const DEFAULT_OUT_FILE = resolve(process.cwd(), "src/decoding/fastPforUnpack.generated.ts");
 
 function hexMask(bits: number): string {
     if (bits === 0) return "0x0";
@@ -208,7 +208,15 @@ function main(): void {
     const check = args.includes("--check");
 
     const content = generateFile();
-    const prev = readFileSync(outFile, "utf8");
+
+    let prev: string | undefined;
+    try {
+        prev = readFileSync(outFile, "utf8");
+    } catch (err) {
+        const code = (err as { code?: unknown } | undefined)?.code;
+        if (code !== "ENOENT") throw err;
+        prev = undefined;
+    }
 
     if (prev === content) {
         process.stdout.write("fastPforUnpack.ts is up to date.\n");
@@ -216,7 +224,11 @@ function main(): void {
     }
 
     if (check) {
-        process.stderr.write(`fastPforUnpack.ts is out of date: ${outFile}\n`);
+        if (prev === undefined) {
+            process.stderr.write(`fastPforUnpack.ts is missing: ${outFile}\n`);
+        } else {
+            process.stderr.write(`fastPforUnpack.ts is out of date: ${outFile}\n`);
+        }
         process.exit(1);
     }
 
