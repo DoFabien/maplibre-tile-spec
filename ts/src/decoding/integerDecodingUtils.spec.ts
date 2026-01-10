@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
+    decodeFastPfor,
+    type FastPforWireDecodeWorkspace,
     decodeVarintInt32,
     decodeVarintInt64,
     decodeVarintFloat64,
@@ -29,6 +31,7 @@ import {
 } from "./integerDecodingUtils";
 import IntWrapper from "./intWrapper";
 import {
+    encodeFastPfor,
     encodeVarintInt32,
     encodeVarintInt64,
     encodeDeltaInt32,
@@ -305,6 +308,77 @@ describe("IntegerDecodingUtils", () => {
     });
 });
 
-describe("decodeFastPfor (wire format)", () => {
-    it.todo("Add encodeFastPfor -> decodeFastPfor round-trip tests in PR8");
+describe("decodeFastPfor (wire format, encode -> decode round-trip)", () => {
+    it("round-trips empty", () => {
+        const values = new Int32Array(0);
+        const encoded = encodeFastPfor(values);
+
+        const offset = new IntWrapper(0);
+        const decoded = decodeFastPfor(encoded, values.length, encoded.length, offset);
+        expect(decoded).toEqual(values);
+        expect(offset.get()).toBe(encoded.length);
+    });
+
+    it("round-trips VByte-only sizes (<256 values)", () => {
+        const values = new Int32Array(100);
+        for (let i = 0; i < values.length; i++) values[i] = (i * 7) | 0;
+
+        const encoded = encodeFastPfor(values);
+        const offset = new IntWrapper(0);
+        const decoded = decodeFastPfor(encoded, values.length, encoded.length, offset);
+        expect(decoded).toEqual(values);
+        expect(offset.get()).toBe(encoded.length);
+    });
+
+    it("round-trips aligned blocks + VByte tail", () => {
+        const values = new Int32Array(256 * 2 + 3);
+        for (let i = 0; i < values.length; i++) {
+            const value = (i * 7) | 0;
+            values[i] = i % 3 === 0 ? -value : value;
+        }
+
+        const encoded = encodeFastPfor(values);
+        const offset = new IntWrapper(0);
+        const decoded = decodeFastPfor(encoded, values.length, encoded.length, offset);
+        expect(decoded).toEqual(values);
+        expect(offset.get()).toBe(encoded.length);
+    });
+
+    it("does not depend on input ArrayBuffer alignment (prefix bytes)", () => {
+        const values = new Int32Array(256 + 3);
+        for (let i = 0; i < values.length; i++) values[i] = (i * 3) | 0;
+
+        const encoded = encodeFastPfor(values);
+        const prefix = new Uint8Array([0xaa, 0xbb, 0xcc]);
+        const suffix = new Uint8Array([0xff, 0xff, 0xff, 0xff, 0xff, 0xff]);
+
+        const buffer = new Uint8Array(prefix.length + encoded.length + suffix.length);
+        buffer.set(prefix, 0);
+        buffer.set(encoded, prefix.length);
+        buffer.set(suffix, prefix.length + encoded.length);
+
+        const offset = new IntWrapper(prefix.length);
+        const decoded = decodeFastPfor(buffer, values.length, encoded.length, offset);
+        expect(decoded).toEqual(values);
+        expect(offset.get()).toBe(prefix.length + encoded.length);
+        expect(buffer.subarray(prefix.length + encoded.length)).toEqual(suffix);
+    });
+
+    it("supports reusing a workspace for the big-endian word stream", () => {
+        const values = new Int32Array(256 + 3);
+        for (let i = 0; i < values.length; i++) values[i] = (i * 5) | 0;
+
+        const encoded = encodeFastPfor(values);
+
+        const workspace: FastPforWireDecodeWorkspace = {};
+        const offset1 = new IntWrapper(0);
+        const decoded1 = decodeFastPfor(encoded, values.length, encoded.length, offset1, workspace);
+        expect(decoded1).toEqual(values);
+        expect(offset1.get()).toBe(encoded.length);
+
+        const offset2 = new IntWrapper(0);
+        const decoded2 = decodeFastPfor(encoded, values.length, encoded.length, offset2, workspace);
+        expect(decoded2).toEqual(values);
+        expect(offset2.get()).toBe(encoded.length);
+    });
 });
