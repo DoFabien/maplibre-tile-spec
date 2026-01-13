@@ -304,3 +304,7 @@ describe("IntegerDecodingUtils", () => {
         expect(Array.from(decoded)).toEqual([0, 1, 2, 3, 4]);
     });
 });
+
+describe("decodeFastPfor (wire format)", () => {
+    it.todo("Add encodeFastPfor -> decodeFastPfor round-trip tests in PR8");
+});
