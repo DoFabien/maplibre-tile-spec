@@ -1,7 +1,3 @@
-/**
- * Shared constants and helpers for the FastPFOR codec.
- */
-
 export type Int32Buf = Int32Array<ArrayBufferLike>;
 export type Uint8Buf = Uint8Array<ArrayBufferLike>;
 
@@ -32,4 +28,9 @@ export function normalizePageSize(pageSize: number): number {
 
     const aligned = greatestMultiple(Math.floor(pageSize), BLOCK_SIZE);
     return aligned === 0 ? BLOCK_SIZE : aligned;
+}
+
+export function bswap32(value: number): number {
+    const x = value >>> 0;
+    return (((x & 0xff) << 24) | ((x & 0xff00) << 8) | ((x >>> 8) & 0xff00) | ((x >>> 24) & 0xff)) >>> 0;
 }

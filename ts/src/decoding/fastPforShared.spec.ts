@@ -1,8 +1,24 @@
 
 import { describe, expect, it } from "vitest";
-import { BLOCK_SIZE, DEFAULT_PAGE_SIZE, MASKS, greatestMultiple, normalizePageSize, roundUpToMultipleOf32 } from "./fastPforShared";
+import {
+    BLOCK_SIZE,
+    DEFAULT_PAGE_SIZE,
+    bswap32,
+    greatestMultiple,
+    normalizePageSize,
+    roundUpToMultipleOf32,
+} from "./fastPforShared";
 
 describe("FastPforShared", () => {
+    describe("endian helpers", () => {
+        it("bswap32 swaps bytes", () => {
+            expect(bswap32(0x11223344)).toBe(0x44332211);
+            expect(bswap32(0x00000000)).toBe(0x00000000);
+            expect(bswap32(0xffffffff)).toBe(0xffffffff);
+            expect(bswap32(0x89abcdef)).toBe(0xefcdab89);
+        });
+    });
+
     describe("normalizePageSize", () => {
         it("returns DEFAULT_PAGE_SIZE for invalid inputs", () => {
             expect(normalizePageSize(0)).toBe(DEFAULT_PAGE_SIZE);
