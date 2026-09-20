@@ -5,7 +5,7 @@ import { parse, join } from "node:path";
 import { VectorTile, type VectorTileFeature } from "@mapbox/vector-tile";
 import { PbfReader } from "pbf";
 
-import { type FeatureTable, type Feature, decodeTile } from ".";
+import { type FeatureTable, type Feature, decodeTile, scanTileLayers, scanTilePhysicalTechniques } from ".";
 import path from "node:path";
 import fs from "node:fs";
 
@@ -35,6 +35,26 @@ describe("MLT Decoder - MVT comparison for Bing tiles", () => {
     testTiles(bingMltTileDir, bingMvtTileDir);
 }, 150000);
 
+describe("MLT physical technique scan", () => {
+    it("distinguishes the standard Bing corpus from an explicit FastPFOR fixture", () => {
+        const bing = new Uint8Array(
+            fs.readFileSync(path.resolve(__dirname, "../../test/expected/tag0x01/bing/4-12-6.mlt")),
+        );
+        const fastPfor = new Uint8Array(
+            fs.readFileSync(path.resolve(__dirname, "../../test/synthetic/0x01/props_u32_fpf_256.mlt")),
+        );
+
+        assert.equal(
+            scanTilePhysicalTechniques(bing).some((stream) => stream.technique === "FAST_PFOR"),
+            false,
+        );
+        assert.equal(
+            scanTilePhysicalTechniques(fastPfor).some((stream) => stream.technique === "FAST_PFOR"),
+            true,
+        );
+    });
+});
+
 describe("FeatureTable", () => {
     it("should iterate through features correctly", () => {
         const bytes = new Uint8Array(fs.readFileSync(ITERATOR_TILE));
@@ -55,6 +75,80 @@ describe("FeatureTable", () => {
             featureCount++;
         }
         assert.equal(featureCount, table.numFeatures);
+    });
+
+    it("should decode only requested layers", () => {
+        const bytes = new Uint8Array(fs.readFileSync(ITERATOR_TILE));
+
+        const featureTables = decodeTile(bytes, undefined, true, { layerNames: ["layer"] });
+        assert.equal(featureTables.length, 1);
+        assert.equal(featureTables[0].name, "layer");
+
+        const skippedFeatureTables = decodeTile(bytes, undefined, true, { layerNames: ["missing"] });
+        assert.equal(skippedFeatureTables.length, 0);
+    });
+
+    it("should scan tile layer metadata without decoding feature tables", () => {
+        const bytes = new Uint8Array(fs.readFileSync(ITERATOR_TILE));
+        const layers = scanTileLayers(bytes);
+
+        assert.deepEqual(
+            layers.map((layer) => layer.name),
+            ["layer"],
+        );
+        assert.equal(layers[0].extent, 4096);
+        assert.ok(layers[0].blockStart < layers[0].blockEnd);
+
+        assert.deepEqual(scanTileLayers(bytes, { layerNames: ["missing"] }), []);
+    });
+
+    it("should decode only requested property columns", () => {
+        const bytes = new Uint8Array(fs.readFileSync(ITERATOR_TILE));
+        const fullFeatureTable = decodeTile(bytes)[0];
+        const propertyName = fullFeatureTable.propertyVectors?.[0]?.name;
+        assert.ok(propertyName);
+
+        const filteredFeatureTable = decodeTile(bytes, undefined, true, {
+            propertyColumnNamesByLayer: {
+                layer: [propertyName],
+            },
+        })[0];
+        assert.deepEqual(
+            filteredFeatureTable.propertyVectors?.map((propertyVector) => propertyVector.name),
+            [propertyName],
+        );
+
+        const noPropertyFeatureTable = decodeTile(bytes, undefined, true, {
+            propertyColumnNamesByLayer: {
+                layer: [],
+            },
+        })[0];
+        assert.deepEqual(noPropertyFeatureTable.propertyVectors, []);
+        assert.ok(noPropertyFeatureTable.availablePropertyNames.includes(propertyName));
+
+        const resolvedPropertyNames: string[][] = [];
+        const stopObserving = noPropertyFeatureTable.onPropertyVectorsResolved((vectors) => {
+            resolvedPropertyNames.push(vectors.map((vector) => vector.name));
+        });
+        const deferredProperty = noPropertyFeatureTable.getPropertyVector(propertyName);
+        assert.ok(deferredProperty);
+        assert.equal(deferredProperty.getValue(0), fullFeatureTable.getPropertyVector(propertyName)?.getValue(0));
+        assert.deepEqual(
+            noPropertyFeatureTable.propertyVectors?.map((propertyVector) => propertyVector.name),
+            [propertyName],
+        );
+        assert.equal(noPropertyFeatureTable.getPropertyVector(propertyName), deferredProperty);
+        assert.equal(noPropertyFeatureTable.getPropertyVector("missing"), undefined);
+        assert.deepEqual(resolvedPropertyNames, [[propertyName]]);
+
+        stopObserving();
+        const secondPropertyName = fullFeatureTable.propertyVectors?.find(
+            (vector) => vector.name !== propertyName,
+        )?.name;
+        if (secondPropertyName) {
+            noPropertyFeatureTable.getPropertyVector(secondPropertyName);
+            assert.deepEqual(resolvedPropertyNames, [[propertyName]]);
+        }
     });
 });
 

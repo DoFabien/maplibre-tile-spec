@@ -1,7 +1,10 @@
 import { VariableSizeVector } from "../variableSizeVector";
-import type BitVector from "../flat/bitVector";
+import BitVector from "../flat/bitVector";
 import { decodeFsst } from "../../decoding/fsstDecoder";
 import { decodeString } from "../../decoding/decodingUtils";
+
+const MAX_DECODED_STRING_CACHE_ENTRIES = 65_536;
+const MAX_DECODED_STRING_CACHE_BYTES = 1024 * 1024;
 
 /** Mutable cache shared by the FSST child columns of one SharedDict. */
 export type FsstDictionaryCache = {
@@ -12,7 +15,9 @@ export type FsstDictionaryCache = {
 export class StringFsstDictionaryVector extends VariableSizeVector<Uint8Array, string> {
     // TODO: extend from StringVector
     private symbolLengthBuffer?: Uint32Array;
-    private decodedDictionary?: Uint8Array;
+    private decodedDictionary!: Uint8Array;
+    private decodedValueCache?: Array<string | undefined> | null;
+    private _decodedStringCount = 0;
 
     constructor(
         name: string,
@@ -29,20 +34,53 @@ export class StringFsstDictionaryVector extends VariableSizeVector<Uint8Array, s
     }
 
     protected getValueFromBuffer(index: number): string {
-        if (this.decodedDictionary == null) {
-            this.decodedDictionary = this.sharedDictionaryCache?.decodedDictionary;
-            if (this.decodedDictionary == null) {
-                this.decodedDictionary = this.decodeDictionary();
-                if (this.sharedDictionaryCache) {
-                    this.sharedDictionaryCache.decodedDictionary = this.decodedDictionary;
-                }
-            }
-        }
+        this.ensureDecodedDictionary();
 
         const offset = this.indexBuffer[index];
         const start = this.offsetBuffer[offset];
         const end = this.offsetBuffer[offset + 1];
-        return decodeString(this.decodedDictionary, start, end);
+        const cache = this.getDecodedValueCache();
+        if (!cache) {
+            this._decodedStringCount++;
+            return decodeString(this.decodedDictionary, start, end);
+        }
+
+        const cached = cache[offset];
+        if (cached !== undefined) return cached;
+
+        this._decodedStringCount++;
+        const decoded = decodeString(this.decodedDictionary, start, end);
+        cache[offset] = decoded;
+        return decoded;
+    }
+
+    /** Number of UTF-8 decodes performed by this vector. */
+    get decodedStringCount(): number {
+        return this._decodedStringCount;
+    }
+
+    private ensureDecodedDictionary(): void {
+        if (this.decodedDictionary != null) return;
+        this.decodedDictionary = this.sharedDictionaryCache?.decodedDictionary;
+        if (this.decodedDictionary == null) {
+            this.decodedDictionary = this.decodeDictionary();
+            if (this.sharedDictionaryCache) {
+                this.sharedDictionaryCache.decodedDictionary = this.decodedDictionary;
+            }
+        }
+    }
+
+    /** See StringDictionaryVector for the matching cache policy. */
+    private getDecodedValueCache(): Array<string | undefined> | null {
+        if (this.decodedValueCache !== undefined) return this.decodedValueCache;
+
+        const dictionarySize = this.offsetBuffer.length - 1;
+        this.decodedValueCache =
+            dictionarySize <= MAX_DECODED_STRING_CACHE_ENTRIES &&
+            this.decodedDictionary.byteLength <= MAX_DECODED_STRING_CACHE_BYTES
+                ? new Array<string | undefined>(dictionarySize)
+                : null;
+        return this.decodedValueCache;
     }
 
     private decodeDictionary(): Uint8Array {
@@ -64,4 +102,66 @@ export class StringFsstDictionaryVector extends VariableSizeVector<Uint8Array, s
 
         return lengthBuffer;
     }
+
+    get decoded() {
+        return this.decodedDictionary;
+    }
+
+    get index() {
+        return this.indexBuffer;
+    }
+}
+
+export function createStringFsstDictionaryVector(values: (string | null)[], name: string): StringFsstDictionaryVector {
+    const encoder = new TextEncoder();
+    const nonNullValues = values.filter((v): v is string => v !== null);
+    const uniqueValues = Array.from(new Set(nonNullValues));
+    const encodedDict = uniqueValues.map((v) => encoder.encode(v));
+
+    // Create FSST-compressed dictionary
+    const compressedSize = encodedDict.reduce((sum, v) => sum + v.length * 2, 0);
+    const dictionaryBuffer = new Uint8Array(compressedSize);
+    const offsetBuffer = new Uint32Array(uniqueValues.length + 1);
+    let compressedOffset = 0;
+    let decompressedOffset = 0;
+    offsetBuffer[0] = 0;
+
+    for (let i = 0; i < encodedDict.length; i++) {
+        const encoded = encodedDict[i];
+        for (let j = 0; j < encoded.length; j++) {
+            dictionaryBuffer[compressedOffset++] = 255; // Escape code
+            dictionaryBuffer[compressedOffset++] = encoded[j];
+        }
+        decompressedOffset += encoded.length;
+        offsetBuffer[i + 1] = decompressedOffset;
+    }
+
+    // Create index and nullability buffers
+    const indexBuffer = new Uint32Array(values.length);
+    const nullabilityBytes = new Uint8Array(Math.ceil(values.length / 8));
+
+    for (let i = 0; i < values.length; i++) {
+        if (values[i] !== null) {
+            indexBuffer[i] = uniqueValues.indexOf(values[i]);
+            const byteIndex = Math.floor(i / 8);
+            const bitIndex = i % 8;
+            nullabilityBytes[byteIndex] |= 1 << bitIndex;
+        } else {
+            indexBuffer[i] = 0;
+        }
+    }
+
+    const symbolOffsetBuffer = new Uint32Array([0, 0]);
+    const symbolTableBuffer = new Uint8Array(0);
+    const bitVector = new BitVector(nullabilityBytes, values.length);
+
+    return new StringFsstDictionaryVector(
+        name,
+        indexBuffer,
+        offsetBuffer,
+        dictionaryBuffer,
+        symbolOffsetBuffer,
+        symbolTableBuffer,
+        bitVector,
+    );
 }

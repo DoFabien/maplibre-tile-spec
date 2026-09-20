@@ -5,8 +5,10 @@ import type { Int64ConstVector } from "./constant/int64ConstVector";
 import type { Int32SequenceVector } from "./sequence/int32SequenceVector";
 import type { Int64SequenceVector } from "./sequence/int64SequenceVector";
 import type { DoubleFlatVector } from "./flat/doubleFlatVector";
+import type { IndexedVector } from "./indexedVector";
 
 export type IdVector =
+    | IndexedVector<number | bigint>
     | Int32FlatVector
     | Int64FlatVector
     | DoubleFlatVector

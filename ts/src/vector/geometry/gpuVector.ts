@@ -1,13 +1,21 @@
+import type { SINGLE_PART_GEOMETRY_TYPE } from "./geometryType";
 import { createFlatGeometryVector } from "./flatGeometryVector";
 import type { CoordinatesArray } from "./geometryVector";
 import type { TopologyVector } from "./topologyVector";
+import type { SelectionVector } from "../filter/selectionVector";
+import {
+    createSelectionVectorByTypeConst,
+    createSelectionVectorByTypeFlat,
+    filterSelectedByTypeConst,
+    filterSelectedByTypeFlat,
+} from "./geometryVectorFilterUtils";
 
 export abstract class GpuVector implements Iterable<CoordinatesArray> {
     protected constructor(
         private readonly _triangleOffsets: Uint32Array,
-        private readonly _indexBuffer: Uint32Array,
+        private readonly _indexBuffer: Int32Array | Uint32Array,
         private readonly _vertexBuffer: Int32Array | Uint32Array,
-        private readonly _topologyVector?: TopologyVector,
+        private readonly _topologyVector: TopologyVector | null = null,
     ) {}
 
     abstract geometryType(index: number): number;
@@ -20,7 +28,7 @@ export abstract class GpuVector implements Iterable<CoordinatesArray> {
         return this._triangleOffsets;
     }
 
-    get indexBuffer(): Uint32Array {
+    get indexBuffer(): Int32Array | Uint32Array {
         return this._indexBuffer;
     }
 
@@ -28,10 +36,36 @@ export abstract class GpuVector implements Iterable<CoordinatesArray> {
         return this._vertexBuffer;
     }
 
-    get topologyVector(): TopologyVector | undefined {
+    get topologyVector(): TopologyVector | null {
         return this._topologyVector;
     }
 
+    filter(geometryType: SINGLE_PART_GEOMETRY_TYPE): SelectionVector {
+        if (this.containsSingleGeometryType()) {
+            return createSelectionVectorByTypeConst(geometryType, this.geometryType(0), this.numGeometries);
+        }
+
+        return createSelectionVectorByTypeFlat(geometryType, this.collectGeometryTypes(), this.numGeometries);
+    }
+
+    filterSelected(geometryType: SINGLE_PART_GEOMETRY_TYPE, selectionVector: SelectionVector): void {
+        if (this.containsSingleGeometryType()) {
+            filterSelectedByTypeConst(geometryType, this.geometryType(0), selectionVector);
+            return;
+        }
+
+        filterSelectedByTypeFlat(geometryType, this.collectGeometryTypes(), selectionVector);
+    }
+
+    private collectGeometryTypes(): Uint32Array {
+        const geometryTypes = new Uint32Array(this.numGeometries);
+        for (let i = 0; i < this.numGeometries; i++) {
+            geometryTypes[i] = this.geometryType(i);
+        }
+        return geometryTypes;
+    }
+
+    /** Returns geometries as coordinate arrays by extracting outlines from topology. */
     getGeometries(): CoordinatesArray[] {
         if (!this._topologyVector) {
             throw new Error("Cannot convert GpuVector to coordinates without topology information");
@@ -58,3 +92,5 @@ export abstract class GpuVector implements Iterable<CoordinatesArray> {
         return null;
     }
 }
+
+export type IGpuVector = GpuVector;

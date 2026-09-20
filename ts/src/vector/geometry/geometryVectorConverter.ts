@@ -1,4 +1,4 @@
-import type { GeometryVector, MortonSettings, CoordinatesArray } from "./geometryVector";
+import type { GeometryVector, MortonSettings, CoordinatesArray, VertexOffsets } from "./geometryVector";
 import { decodeZOrderCurve } from "./zOrderCurve";
 import { GEOMETRY_TYPE } from "./geometryType";
 import { VertexBufferType } from "./vertexBufferType";
@@ -266,7 +266,7 @@ export function convertGeometryVector(geometryVector: GeometryVector): Coordinat
 function decodeDictionaryEncodedVertices(
     vertexBufferType: VertexBufferType,
     vertexBuffer: Int32Array | Uint32Array,
-    vertexOffsets: Uint32Array,
+    vertexOffsets: VertexOffsets,
     vertexOffset: number,
     numVertices: number,
     isRing: boolean,
@@ -307,7 +307,7 @@ function getLineStringOrRing(
 
 function decodeVec2DictionaryEncodedVertices(
     vertexBuffer: Int32Array | Uint32Array,
-    vertexOffsets: Uint32Array,
+    vertexOffsets: VertexOffsets,
     vertexOffset: number,
     numVertices: number,
     isRing: boolean,
@@ -328,7 +328,7 @@ function decodeVec2DictionaryEncodedVertices(
 
 function decodeMortonDictionaryEncodedVertices(
     vertexBuffer: Int32Array | Uint32Array,
-    vertexOffsets: Uint32Array,
+    vertexOffsets: VertexOffsets,
     vertexOffset: number,
     numVertices: number,
     isRing: boolean,

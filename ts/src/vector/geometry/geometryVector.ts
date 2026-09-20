@@ -1,9 +1,16 @@
 import { convertGeometryVector } from "./geometryVectorConverter";
 import { decodeZOrderCurve } from "./zOrderCurve";
 import type Point from "@mapbox/point-geometry";
-import type { GEOMETRY_TYPE } from "./geometryType";
+import type { GEOMETRY_TYPE, SINGLE_PART_GEOMETRY_TYPE } from "./geometryType";
 import type { VertexBufferType } from "./vertexBufferType";
 import type { TopologyVector } from "../../vector/geometry/topologyVector";
+import type { SelectionVector } from "../filter/selectionVector";
+import {
+    createSelectionVectorByTypeConst,
+    createSelectionVectorByTypeFlat,
+    filterSelectedByTypeConst,
+    filterSelectedByTypeFlat,
+} from "./geometryVectorFilterUtils";
 
 export type CoordinatesArray = Array<Array<Point>>;
 
@@ -17,12 +24,15 @@ export interface MortonSettings {
     coordinateShift: number;
 }
 
+export type VertexOffsets = Int32Array | Uint32Array;
+export type VertexBuffer = Int32Array | Uint32Array;
+
 export abstract class GeometryVector {
     protected constructor(
         private readonly _vertexBufferType: VertexBufferType,
         private readonly _topologyVector: TopologyVector,
-        private readonly _vertexOffsets: Uint32Array | undefined,
-        private readonly _vertexBuffer: Int32Array | Uint32Array,
+        private readonly _vertexOffsets: VertexOffsets | undefined,
+        private readonly _vertexBuffer: VertexBuffer,
         private readonly _mortonSettings?: MortonSettings,
     ) {}
 
@@ -34,11 +44,11 @@ export abstract class GeometryVector {
         return this._topologyVector;
     }
 
-    get vertexOffsets(): Uint32Array | undefined {
+    get vertexOffsets(): VertexOffsets | undefined {
         return this._vertexOffsets;
     }
 
-    get vertexBuffer(): Int32Array | Uint32Array {
+    get vertexBuffer(): VertexBuffer {
         return this._vertexBuffer;
     }
 
@@ -87,4 +97,31 @@ export abstract class GeometryVector {
     abstract get numGeometries(): number;
 
     abstract containsSingleGeometryType(): boolean;
+
+    filter(geometryType: SINGLE_PART_GEOMETRY_TYPE): SelectionVector {
+        if (this.containsSingleGeometryType()) {
+            return createSelectionVectorByTypeConst(geometryType, this.geometryType(0), this.numGeometries);
+        }
+
+        return createSelectionVectorByTypeFlat(geometryType, this.collectGeometryTypes(), this.numGeometries);
+    }
+
+    filterSelected(geometryType: SINGLE_PART_GEOMETRY_TYPE, selectionVector: SelectionVector): void {
+        if (this.containsSingleGeometryType()) {
+            filterSelectedByTypeConst(geometryType, this.geometryType(0), selectionVector);
+            return;
+        }
+
+        filterSelectedByTypeFlat(geometryType, this.collectGeometryTypes(), selectionVector);
+    }
+
+    private collectGeometryTypes(): Uint32Array {
+        const geometryTypes = new Uint32Array(this.numGeometries);
+        for (let i = 0; i < this.numGeometries; i++) {
+            geometryTypes[i] = this.geometryType(i);
+        }
+        return geometryTypes;
+    }
 }
+
+export type IGeometryVector = GeometryVector;

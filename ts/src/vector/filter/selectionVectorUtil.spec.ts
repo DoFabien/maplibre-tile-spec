@@ -3,6 +3,9 @@ import {
     createSelectionVector,
     createNullableSelectionVector,
     updateNullableSelectionVector,
+    unionSelectionVectors,
+    invertSelectionVector,
+    intersectSelectionVectors,
 } from "./selectionVectorUtils";
 import { FlatSelectionVector } from "./flatSelectionVector";
 import { SequenceSelectionVector } from "./sequenceSelectionVector";
@@ -72,7 +75,7 @@ describe("selectionVectorUtils", () => {
     describe("updateNullableSelectionVector", () => {
         describe("with FlatSelectionVector", () => {
             it("Should return new instance when filtering with BitVector", () => {
-                const selectionVector = new FlatSelectionVector([0, 1, 2, 3, 4, 5, 6, 7]);
+                const selectionVector = new FlatSelectionVector(new Uint32Array([0, 1, 2, 3, 4, 5, 6, 7]));
                 const buffer = new Uint8Array([0b00001011]);
                 const bitVector = new BitVector(buffer, 8);
                 const result = updateNullableSelectionVector(selectionVector, bitVector);
@@ -83,20 +86,20 @@ describe("selectionVectorUtils", () => {
             });
 
             it("Should return same instance when BitVector is null", () => {
-                const selectionVector = new FlatSelectionVector([0, 1, 2, 3, 4, 5, 6, 7]);
+                const selectionVector = new FlatSelectionVector(new Uint32Array([0, 1, 2, 3, 4, 5, 6, 7]));
                 const result = updateNullableSelectionVector(selectionVector, null);
                 expect(result).toStrictEqual(selectionVector);
             });
 
             it("Should return all indices when nullabilityBuffer is undefined", () => {
-                const selectionVector = new FlatSelectionVector([0, 2, 4, 6]);
+                const selectionVector = new FlatSelectionVector(new Uint32Array([0, 2, 4, 6]));
                 const result = updateNullableSelectionVector(selectionVector, undefined);
                 expect(result).toBeInstanceOf(FlatSelectionVector);
                 expect(result.limit).toBe(4);
             });
 
             it("Should keep all indices when all bits are set", () => {
-                const selectionVector = new FlatSelectionVector([0, 2, 4, 6]);
+                const selectionVector = new FlatSelectionVector(new Uint32Array([0, 2, 4, 6]));
                 const buffer = new Uint8Array([0b01010101]);
                 const bitVector = new BitVector(buffer, 8);
                 const result = updateNullableSelectionVector(selectionVector, bitVector);
@@ -105,7 +108,7 @@ describe("selectionVectorUtils", () => {
             });
 
             it("Should filter out null indices from selection vector", () => {
-                const selectionVector = new FlatSelectionVector([0, 2, 4, 6]);
+                const selectionVector = new FlatSelectionVector(new Uint32Array([0, 2, 4, 6]));
                 const buffer = new Uint8Array([0b01000101]); // bits at 0, 2, 6
                 const bitVector = new BitVector(buffer, 8);
                 const result = updateNullableSelectionVector(selectionVector, bitVector);
@@ -114,8 +117,8 @@ describe("selectionVectorUtils", () => {
             });
 
             it("Should return empty vector when all selected indices are null", () => {
-                const selectionVector = new FlatSelectionVector([1, 3, 5]);
-                const buffer = new Uint8Array([0b01010101]); // bits at 0, 2, 4, 6 (not 1, 3, 5)
+                const selectionVector = new FlatSelectionVector(new Uint32Array([1, 3, 5]));
+                const buffer = new Uint8Array([0b01010101]); // bits at 0, 2, 4, 6
                 const bitVector = new BitVector(buffer, 8);
                 const result = updateNullableSelectionVector(selectionVector, bitVector);
                 expect(result).toBeInstanceOf(FlatSelectionVector);
@@ -123,7 +126,7 @@ describe("selectionVectorUtils", () => {
             });
 
             it("Should handle empty FlatSelectionVector", () => {
-                const selectionVector = new FlatSelectionVector([]);
+                const selectionVector = new FlatSelectionVector(new Uint32Array([]));
                 const buffer = new Uint8Array([0b11111111]);
                 const bitVector = new BitVector(buffer, 8);
                 const result = updateNullableSelectionVector(selectionVector, bitVector);
@@ -132,7 +135,7 @@ describe("selectionVectorUtils", () => {
             });
 
             it("Should filter large index values from selection vector", () => {
-                const selectionVector = new FlatSelectionVector([0, 8, 16]);
+                const selectionVector = new FlatSelectionVector(new Uint32Array([0, 8, 16]));
                 const buffer = new Uint8Array([0b00000001, 0b00000000, 0b00000000]);
                 const bitVector = new BitVector(buffer, 24);
                 const result = updateNullableSelectionVector(selectionVector, bitVector);
@@ -174,6 +177,91 @@ describe("selectionVectorUtils", () => {
                 expect(result).toBeInstanceOf(FlatSelectionVector);
                 expect(result.limit).toBe(4);
             });
+        });
+    });
+
+    describe("unionSelectionVectors", () => {
+        it("returns empty vector for empty array", () => {
+            const result = unionSelectionVectors([], 10);
+            expect(result).toBeInstanceOf(FlatSelectionVector);
+            expect(result.limit).toBe(0);
+        });
+
+        it("returns same vector for single element array", () => {
+            const sv = new FlatSelectionVector(new Uint32Array([1, 3, 5]));
+            const result = unionSelectionVectors([sv], 10);
+            expect(result).toBe(sv);
+        });
+
+        it("deduplicates overlapping indices", () => {
+            const sv1 = new FlatSelectionVector(new Uint32Array([0, 2, 4]));
+            const sv2 = new FlatSelectionVector(new Uint32Array([2, 4, 6]));
+            const result = unionSelectionVectors([sv1, sv2], 10);
+            expect(result.limit).toBe(4);
+            expect(result.getIndex(0)).toBe(0);
+            expect(result.getIndex(1)).toBe(2);
+            expect(result.getIndex(2)).toBe(4);
+            expect(result.getIndex(3)).toBe(6);
+        });
+
+        it("combines non-overlapping indices", () => {
+            const sv1 = new FlatSelectionVector(new Uint32Array([0, 1]));
+            const sv2 = new FlatSelectionVector(new Uint32Array([8, 9]));
+            const result = unionSelectionVectors([sv1, sv2], 10);
+            expect(result.limit).toBe(4);
+        });
+    });
+
+    describe("invertSelectionVector", () => {
+        it("returns complement of selected indices", () => {
+            const sv = new FlatSelectionVector(new Uint32Array([1, 3]));
+            const result = invertSelectionVector(sv, 5);
+            expect(result.limit).toBe(3);
+            expect(result.getIndex(0)).toBe(0);
+            expect(result.getIndex(1)).toBe(2);
+            expect(result.getIndex(2)).toBe(4);
+        });
+
+        it("returns all indices when input is empty", () => {
+            const sv = new FlatSelectionVector(new Uint32Array([]));
+            const result = invertSelectionVector(sv, 3);
+            expect(result.limit).toBe(3);
+        });
+
+        it("returns empty when all indices are selected", () => {
+            const sv = new FlatSelectionVector(new Uint32Array([0, 1, 2]));
+            const result = invertSelectionVector(sv, 3);
+            expect(result.limit).toBe(0);
+        });
+    });
+
+    describe("intersectSelectionVectors", () => {
+        it("returns common indices", () => {
+            const sv1 = new FlatSelectionVector(new Uint32Array([1, 2, 3, 4]));
+            const sv2 = new FlatSelectionVector(new Uint32Array([2, 4, 6]));
+            const result = intersectSelectionVectors(sv1, sv2);
+            expect(result.limit).toBe(2);
+        });
+
+        it("returns empty when no common indices", () => {
+            const sv1 = new FlatSelectionVector(new Uint32Array([0, 2]));
+            const sv2 = new FlatSelectionVector(new Uint32Array([1, 3]));
+            const result = intersectSelectionVectors(sv1, sv2);
+            expect(result.limit).toBe(0);
+        });
+
+        it("returns empty when one vector is empty", () => {
+            const sv1 = new FlatSelectionVector(new Uint32Array([1, 2, 3]));
+            const sv2 = new FlatSelectionVector(new Uint32Array([]));
+            const result = intersectSelectionVectors(sv1, sv2);
+            expect(result.limit).toBe(0);
+        });
+
+        it("handles sel2 smaller than sel1", () => {
+            const sv1 = new FlatSelectionVector(new Uint32Array([0, 1, 2, 3, 4]));
+            const sv2 = new FlatSelectionVector(new Uint32Array([2, 3]));
+            const result = intersectSelectionVectors(sv1, sv2);
+            expect(result.limit).toBe(2);
         });
     });
 });

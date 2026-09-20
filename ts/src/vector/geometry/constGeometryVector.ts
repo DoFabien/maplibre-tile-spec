@@ -1,4 +1,4 @@
-import { GeometryVector, type MortonSettings } from "./geometryVector";
+import { GeometryVector, type MortonSettings, type VertexBuffer, type VertexOffsets } from "./geometryVector";
 import { GEOMETRY_TYPE } from "./geometryType";
 import { VertexBufferType } from "./vertexBufferType";
 import type { TopologyVector } from "../../vector/geometry/topologyVector";
@@ -7,8 +7,8 @@ export function createConstGeometryVector(
     numGeometries: number,
     geometryType: number,
     topologyVector: TopologyVector,
-    vertexOffsets: Uint32Array | undefined,
-    vertexBuffer: Int32Array | Uint32Array,
+    vertexOffsets: VertexOffsets | undefined,
+    vertexBuffer: VertexBuffer,
 ): ConstGeometryVector {
     return new ConstGeometryVector(
         numGeometries,
@@ -24,8 +24,8 @@ export function createMortonEncodedConstGeometryVector(
     numGeometries: number,
     geometryType: number,
     topologyVector: TopologyVector,
-    vertexOffsets: Uint32Array | undefined,
-    vertexBuffer: Int32Array | Uint32Array,
+    vertexOffsets: VertexOffsets | undefined,
+    vertexBuffer: VertexBuffer,
     mortonInfo: MortonSettings,
 ): ConstGeometryVector {
     return new ConstGeometryVector(
@@ -45,8 +45,8 @@ export class ConstGeometryVector extends GeometryVector {
         private readonly _geometryType: number,
         vertexBufferType: VertexBufferType,
         topologyVector: TopologyVector,
-        vertexOffsets: Uint32Array | undefined,
-        vertexBuffer: Int32Array | Uint32Array,
+        vertexOffsets: VertexOffsets | undefined,
+        vertexBuffer: VertexBuffer,
         mortonSettings?: MortonSettings,
     ) {
         super(vertexBufferType, topologyVector, vertexOffsets, vertexBuffer, mortonSettings);
