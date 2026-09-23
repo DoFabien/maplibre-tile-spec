@@ -184,6 +184,8 @@ function materializeByteContainer(
 function unpackExceptionStreams(inValues: Uint32Array, inExcept: number, workspace: FastPforDecoderWorkspace): number {
     const bitmap = inValues[inExcept++] | 0;
     const dataToBePacked = workspace.dataToBePacked;
+    // Streams of a reused workspace stay allocated; only widths listed in this page's bitmap may be read.
+    workspace.exceptionSizes.fill(0);
 
     for (let bitWidth = 2; bitWidth <= MAX_BIT_WIDTH; bitWidth = (bitWidth + 1) | 0) {
         if (((bitmap >>> (bitWidth - 1)) & 1) === 0) continue;

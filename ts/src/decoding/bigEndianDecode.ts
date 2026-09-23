@@ -1,11 +1,8 @@
-import { bswap32 } from "./fastPforShared";
-
 /**
  * Decodes big-endian bytes into `out` without allocating the output buffer.
  *
  * This function does not copy `bytes`; it writes decoded words into the provided `out` array.
- * For aligned inputs it may create a temporary typed-array view (`Uint32Array`) over `bytes.buffer`
- * to speed up decoding.
+ * `DataView` reads big-endian words at any alignment and is faster in V8 than swapping bytes by hand.
  *
  * If `byteLength` is not a multiple of 4, the final word is padded with zeros.
  *
@@ -33,17 +30,9 @@ export function decodeBigEndianInt32sInto(
     }
 
     if (numCompleteInts > 0) {
-        const absoluteOffset = bytes.byteOffset + offset;
-        if ((absoluteOffset & 3) === 0) {
-            const u32 = new Uint32Array(bytes.buffer, absoluteOffset, numCompleteInts);
-            for (let i = 0; i < numCompleteInts; i++) {
-                out[i] = bswap32(u32[i]) | 0;
-            }
-        } else {
-            for (let i = 0; i < numCompleteInts; i++) {
-                const base = offset + i * 4;
-                out[i] = (bytes[base] << 24) | (bytes[base + 1] << 16) | (bytes[base + 2] << 8) | bytes[base + 3] | 0;
-            }
+        const view = new DataView(bytes.buffer, bytes.byteOffset + offset, numCompleteInts * 4);
+        for (let i = 0; i < numCompleteInts; i++) {
+            out[i] = view.getUint32(i * 4);
         }
     }
 

@@ -37,6 +37,21 @@ describe("decodeFastPfor (wire format fixtures)", () => {
     it("has FastPFOR fixtures", () => {
         expect(fixtureNames.length).toBeGreaterThan(0);
     });
+
+    it("decodes consecutive streams of different shapes at unaligned offsets", () => {
+        const names = [...fixtureNames, ...fixtureNames.slice().reverse()];
+        for (let i = 0; i < names.length; i++) {
+            const encoded = readEncodedFixtureBytes(names[i]);
+            const buffer = new Uint8Array(encoded.length + 3);
+            const start = (i % 3) + 1;
+            buffer.set(encoded, start);
+
+            const offset = new IntWrapper(start);
+            const decoded = decodeFastPfor(buffer, readExpectedFixtureValues(names[i]).length, encoded.length, offset);
+            expect(decoded, names[i]).toEqual(readExpectedFixtureValues(names[i]));
+            expect(offset.get()).toBe(start + encoded.length);
+        }
+    });
     for (const name of fixtureNames) {
         describe(name, () => {
             it("decodes (no workspace)", () => {

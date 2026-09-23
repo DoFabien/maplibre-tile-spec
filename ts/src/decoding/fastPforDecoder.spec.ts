@@ -360,6 +360,21 @@ describe("FastPFOR decoder error cases", () => {
         expect(() => decodeFastPforInt32(corruptedEncoded, values.length)).toThrow(/missing exception stream/);
     });
 
+    it("does not read exception streams left in a reused workspace", () => {
+        const values = createSingleBlockValuesWithExceptionOutliers(DEFAULT_OUTLIER_VALUE);
+        const encoded = encodeFastPforInt32WithWorkspace(values, createFastPforEncoderWorkspace());
+        const { exceptionBitmapWordIndex } = getSinglePageWordLayout(encoded);
+        const workspace = createDecoderWorkspace();
+        expect(decodeFastPforInt32(encoded, values.length, workspace)).toEqual(values);
+
+        const corruptedEncoded = encoded.slice();
+        corruptedEncoded[exceptionBitmapWordIndex] = 0;
+
+        expect(() => decodeFastPforInt32(corruptedEncoded, values.length, workspace)).toThrow(
+            /exception stream overflow/,
+        );
+    });
+
     it("throws when exception stream pointer overflows stream size", () => {
         const values = createSingleBlockValuesWithExceptionOutliers(DEFAULT_OUTLIER_VALUE);
         const encoded = encodeFastPforInt32WithWorkspace(values, createFastPforEncoderWorkspace());
