@@ -52,8 +52,8 @@ function containsPolygonGeometry(geometryVector: TopologyGeometryVector): boolea
  * Allocation-free cursor over MLT topology ranges.
  *
  * Forward seeks continue from the current topology offsets. Backward seeks
- * reset and replay the compact offset streams, without retaining a per-feature
- * range index. The cursor itself is also the reusable view of a selected part.
+ * step back through the compact offset streams, or replay them from the first
+ * feature when it is closer, without retaining a per-feature range index. The cursor itself is also the reusable view of a selected part.
  */
 export class GeometryTopologyCursor {
     private readonly geometryOffsets: OffsetArray;
@@ -98,6 +98,9 @@ export class GeometryTopologyCursor {
             return this;
         }
 
+        if (featureIndex < this.currentFeatureIndex - featureIndex) {
+            this.reset();
+        }
         while (this.currentFeatureIndex > featureIndex) {
             this.scanPreviousFeature();
         }
