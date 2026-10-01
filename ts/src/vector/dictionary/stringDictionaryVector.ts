@@ -22,7 +22,11 @@ export class StringDictionaryVector extends VariableSizeVector<Uint8Array, strin
     }
 
     protected getValueFromBuffer(index: number): string {
-        const offset = this.indexBuffer[index];
+        return this.getDictionaryValue(this.indexBuffer[index]);
+    }
+
+    /** The string of a dictionary entry, which rows refer to by {@link index}. */
+    getDictionaryValue(offset: number): string {
         const start = this.offsetBuffer[offset];
         const end = this.offsetBuffer[offset + 1];
         const cache = this.getDecodedValueCache();
@@ -61,6 +65,11 @@ export class StringDictionaryVector extends VariableSizeVector<Uint8Array, strin
                 ? new Array<string | undefined>(dictionarySize)
                 : null;
         return this.decodedValueCache;
+    }
+
+    /** Number of dictionary entries. */
+    get dictionarySize(): number {
+        return this.offsetBuffer.length - 1;
     }
 
     get index(): Uint32Array {

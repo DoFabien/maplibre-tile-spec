@@ -36,6 +36,14 @@ describe("StringFsstDictionaryVector", () => {
         expect(vector).toBeInstanceOf(StringFsstDictionaryVector);
     });
 
+    it("reads dictionary entries without a row, before any row is read", () => {
+        const vector = createStringFsstDictionaryVector([null, "café", "", "café"], "name");
+
+        expect(vector.dictionarySize).toBe(2);
+        expect([0, 1].map((entry) => vector.getDictionaryValue(entry))).toEqual(["café", ""]);
+        expect(vector.getValue(3)).toBe(vector.getDictionaryValue(vector.index[3]));
+    });
+
     it("caches repeated UTF-8, empty, and nullable dictionary values", () => {
         const vector = createStringFsstDictionaryVector(["café", "", "café", null], "name");
 

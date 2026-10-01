@@ -34,9 +34,13 @@ export class StringFsstDictionaryVector extends VariableSizeVector<Uint8Array, s
     }
 
     protected getValueFromBuffer(index: number): string {
+        return this.getDictionaryValue(this.indexBuffer[index]);
+    }
+
+    /** The string of a dictionary entry, which rows refer to by {@link index}. */
+    getDictionaryValue(offset: number): string {
         this.ensureDecodedDictionary();
 
-        const offset = this.indexBuffer[index];
         const start = this.offsetBuffer[offset];
         const end = this.offsetBuffer[offset + 1];
         const cache = this.getDecodedValueCache();
@@ -105,6 +109,11 @@ export class StringFsstDictionaryVector extends VariableSizeVector<Uint8Array, s
 
     get decoded() {
         return this.decodedDictionary;
+    }
+
+    /** Number of dictionary entries. */
+    get dictionarySize(): number {
+        return this.offsetBuffer.length - 1;
     }
 
     get index() {
