@@ -8,6 +8,8 @@ import TopologyVector from "../vector/geometry/topologyVector";
 export type SlicedGeometryVector = {
     geometryVector: FlatGeometryVector;
     sourceIndices: Uint32Array;
+    /** The extent of the sliced vertices. */
+    extent: number;
 };
 
 const enum Axis {
@@ -41,6 +43,7 @@ class GeometrySliceBuilder implements ClipVisitor {
     constructor(
         private readonly min: number,
         private readonly max: number,
+        private readonly outputScale: number,
     ) {
         this.clipY = new AxisClipper(min, max, Axis.Y, this);
         this.clipX = new AxisClipper(min, max, Axis.X, this.clipY);
@@ -95,7 +98,7 @@ class GeometrySliceBuilder implements ClipVisitor {
         }
         this.lastX = x;
         this.lastY = y;
-        this.vertices.push(Math.round(x), Math.round(y));
+        this.vertices.push(Math.round(x * this.outputScale), Math.round(y * this.outputScale));
     }
 
     endPart(): void {
@@ -121,9 +124,10 @@ export function sliceGeometryVector(
     offsetY: number,
     min: number,
     max: number,
+    outputScale = 1,
 ): SlicedGeometryVector {
     const cursor = new GeometryTopologyCursor(featureTable.geometryVector);
-    const builder = new GeometrySliceBuilder(min, max);
+    const builder = new GeometrySliceBuilder(min, max, outputScale);
     const reader = new TransformedVertexReader(featureTable.geometryVector as GeometryVector, scale, offsetX, offsetY);
 
     for (let featureIndex = 0; featureIndex < featureTable.numFeatures; featureIndex++) {
@@ -138,6 +142,7 @@ export function sliceGeometryVector(
     return {
         geometryVector: buildGeometryVector(builder),
         sourceIndices: new Uint32Array(builder.sourceIndices),
+        extent: featureTable.extent * outputScale,
     };
 }
 

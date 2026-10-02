@@ -16,6 +16,21 @@ import { encodeFeatureTables } from "../mltEncoder";
 import decodeTile from "../mltDecoder";
 
 describe("sliceFeatureTable", () => {
+    it("rounds clipped vertices to a finer extent when requested", () => {
+        const geometry = createFlatGeometryVector(
+            new Int32Array([GEOMETRY_TYPE.LINESTRING]),
+            new TopologyVector(undefined, new Uint32Array([0, 2]), undefined),
+            undefined, new Int32Array([1000, 0, 3000, 1]),
+        );
+        const source = new FeatureTable("roads", geometry);
+        const coarse = sliceFeatureTable(source, {z: 0, x: 0, y: 0}, {z: 1, x: 0, y: 0});
+        const fine = sliceFeatureTable(source, {z: 0, x: 0, y: 0}, {z: 1, x: 0, y: 0}, {extent: 8192});
+        expect(coarse.extent).toBe(4096);
+        expect(Array.from(coarse.geometryVector.vertexBuffer)).toEqual([2000, 0, 4224, 1]);
+        expect(fine.extent).toBe(8192);
+        expect(Array.from(fine.geometryVector.vertexBuffer)).toEqual([4000, 0, 8448, 2]);
+    });
+
     it("binds only requested columns as indexed views and preserves types when explicitly reencoded", () => {
         const geometry = createFlatGeometryVector(
             new Int32Array([GEOMETRY_TYPE.POINT, GEOMETRY_TYPE.POINT]),

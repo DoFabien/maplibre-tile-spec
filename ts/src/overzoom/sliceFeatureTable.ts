@@ -21,6 +21,11 @@ export type TileLike = {
 
 export type SliceFeatureTableOptions = {
     buffer?: number;
+    /**
+     * The extent of the sliced table, a multiple of the source extent. Vertices are rounded to it, so a finer
+     * extent keeps more of the precision of the clipped coordinates.
+     */
+    extent?: number;
     /** Resolve missing property columns only when a consumer requests them. */
     deferProperties?: boolean;
     /** Bind only these columns; other available columns remain accessible with deferProperties. */
@@ -60,7 +65,7 @@ export function sliceFeatureTableGeometry(
     featureTable: FeatureTable,
     maxZoomTileID: TileLike,
     targetTileID: TileLike,
-    options: Pick<SliceFeatureTableOptions, "buffer"> = {},
+    options: Pick<SliceFeatureTableOptions, "buffer" | "extent"> = {},
 ): SlicedGeometryVector {
     const extent = featureTable.extent;
     const dz = targetTileID.z - maxZoomTileID.z;
@@ -68,13 +73,13 @@ export function sliceFeatureTableGeometry(
     const offsetX = (targetTileID.x - maxZoomTileID.x * scale) * extent;
     const offsetY = (targetTileID.y - maxZoomTileID.y * scale) * extent;
     const buffer = options.buffer ?? 128;
-    return sliceGeometryVector(featureTable, scale, offsetX, offsetY, -buffer, extent + buffer);
+    return sliceGeometryVector(featureTable, scale, offsetX, offsetY, -buffer, extent + buffer, (options.extent ?? extent) / extent);
 }
 
 /** Reuses clipped geometry with the current source columns; deferred columns preserve unstyled public properties. */
 export function applyFeatureTableSlice(
     featureTable: FeatureTable,
-    { geometryVector, sourceIndices }: SlicedGeometryVector,
+    { geometryVector, sourceIndices, extent }: SlicedGeometryVector,
     options: Pick<SliceFeatureTableOptions, "deferProperties" | "propertyNames" | "columnMode"> = {},
 ): FeatureTable {
     return new FeatureTable(
@@ -88,7 +93,7 @@ export function applyFeatureTableSlice(
             sourceIndices,
             options.columnMode,
         ),
-        featureTable.extent,
+        extent,
         options.deferProperties
             ? (name) => {
                   const source = featureTable.getPropertyVector(name);
