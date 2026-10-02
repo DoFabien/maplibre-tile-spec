@@ -1,6 +1,5 @@
 import type FeatureTable from "./vector/featureTable";
 import type Vector from "./vector/vector";
-import { IndexedVector } from "./vector/indexedVector";
 import { BooleanFlatVector } from "./vector/flat/booleanFlatVector";
 import { DoubleFlatVector } from "./vector/flat/doubleFlatVector";
 import { FloatFlatVector } from "./vector/flat/floatFlatVector";
@@ -223,8 +222,6 @@ function encodeScalarValues(vector: Vector, values: unknown[]): EncodedScalar {
     const nullable = values.some((value) => value === null);
     const presentStream = nullable ? [encodePresentStream(values)] : [];
     const nonNullValues = values.filter((value) => value !== null);
-    let scalarVector = vector;
-    while (scalarVector instanceof IndexedVector) scalarVector = scalarVector.source;
 
     const compactInteger = encodeCompactIntegerVector(vector, nonNullValues.length);
     if (compactInteger) {
@@ -232,13 +229,13 @@ function encodeScalarValues(vector: Vector, values: unknown[]): EncodedScalar {
     }
 
     if (
-        scalarVector instanceof StringFlatVector ||
-        scalarVector instanceof StringDictionaryVector ||
-        scalarVector instanceof StringFsstDictionaryVector ||
+        vector instanceof StringFlatVector ||
+        vector instanceof StringDictionaryVector ||
+        vector instanceof StringFsstDictionaryVector ||
         (nonNullValues.length > 0 && nonNullValues.every((value) => typeof value === "string"))
     ) {
         const strings = values.map((value) => (value === null ? null : requireType(value, "string", vector.name)));
-        const dictionary = scalarVector instanceof StringDictionaryVector || scalarVector instanceof StringFsstDictionaryVector;
+        const dictionary = vector instanceof StringDictionaryVector || vector instanceof StringFsstDictionaryVector;
         return {
             scalarType: ScalarType.STRING,
             nullable,
@@ -248,7 +245,7 @@ function encodeScalarValues(vector: Vector, values: unknown[]): EncodedScalar {
     }
 
     if (
-        scalarVector instanceof BooleanFlatVector ||
+        vector instanceof BooleanFlatVector ||
         (nonNullValues.length > 0 && nonNullValues.every((value) => typeof value === "boolean"))
     ) {
         const booleans = nonNullValues.map((value) => requireType(value, "boolean", vector.name));
@@ -260,7 +257,7 @@ function encodeScalarValues(vector: Vector, values: unknown[]): EncodedScalar {
         return fixedScalar(ScalarType.BOOLEAN, nullable, presentStream, data);
     }
 
-    if (scalarVector instanceof FloatFlatVector) {
+    if (vector instanceof FloatFlatVector) {
         const numbers = nonNullValues.map((value) => requireType(value, "number", vector.name));
         const data = createStream(PhysicalStreamType.DATA, encodeFloatsLE(new Float32Array(numbers)), {
             logical: { dictionaryType: DictionaryType.NONE },
@@ -270,7 +267,7 @@ function encodeScalarValues(vector: Vector, values: unknown[]): EncodedScalar {
     }
 
     if (
-        scalarVector instanceof DoubleFlatVector ||
+        vector instanceof DoubleFlatVector ||
         nonNullValues.some((value) => typeof value === "number" && !Number.isInteger(value))
     ) {
         const numbers = nonNullValues.map((value) => requireType(value, "number", vector.name));
@@ -282,11 +279,11 @@ function encodeScalarValues(vector: Vector, values: unknown[]): EncodedScalar {
     }
 
     if (
-        scalarVector.data instanceof BigInt64Array ||
-        scalarVector.data instanceof BigUint64Array ||
+        vector.data instanceof BigInt64Array ||
+        vector.data instanceof BigUint64Array ||
         (nonNullValues.length > 0 && nonNullValues.every((value) => typeof value === "bigint"))
     ) {
-        const signed = scalarVector.data instanceof BigInt64Array || nonNullValues.some((value) => (value as bigint) < 0n);
+        const signed = vector.data instanceof BigInt64Array || nonNullValues.some((value) => (value as bigint) < 0n);
         const bigints = nonNullValues.map((value) => requireType(value, "bigint", vector.name));
         const data = signed
             ? encodeSignedInt64Data(new BigInt64Array(bigints.map((value) => BigInt.asIntN(64, value))))
@@ -295,12 +292,12 @@ function encodeScalarValues(vector: Vector, values: unknown[]): EncodedScalar {
     }
 
     if (
-        scalarVector.data instanceof Int32Array ||
-        scalarVector.data instanceof Uint32Array ||
+        vector.data instanceof Int32Array ||
+        vector.data instanceof Uint32Array ||
         (nonNullValues.length > 0 &&
             nonNullValues.every((value) => typeof value === "number" && Number.isInteger(value)))
     ) {
-        const signed = scalarVector.data instanceof Int32Array || nonNullValues.some((value) => (value as number) < 0);
+        const signed = vector.data instanceof Int32Array || nonNullValues.some((value) => (value as number) < 0);
         const numbers = nonNullValues.map((value) => requireType(value, "number", vector.name));
         if (numbers.some((value) => !Number.isSafeInteger(value) || value < -0x80000000 || value > 0xffffffff)) {
             const data = createStream(PhysicalStreamType.DATA, encodeDoubleLE(new Float64Array(numbers)), {

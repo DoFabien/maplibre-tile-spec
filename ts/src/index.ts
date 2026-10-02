@@ -2,7 +2,6 @@ export { default as decodeTile, decodeTileLayer, scanTileLayers, scanTilePhysica
 export type { DecodeTileOptions, TileLayerIndexEntry, TilePhysicalTechniqueEntry } from "./mltDecoder";
 export { encodeTile } from "./encoding/mltEncoder";
 export { default as FeatureTable } from "./vector/featureTable";
-export { IndexedVector } from "./vector/indexedVector";
 export { GeometryVector } from "./vector/geometry/geometryVector";
 export { GpuVector } from "./vector/geometry/gpuVector";
 export type { IGeometryVector } from "./vector/geometry/geometryVector";
@@ -13,9 +12,6 @@ export type { TileSetMetadata } from "./metadata/tileset/tilesetMetadata";
 export type { Geometry } from "./vector/geometry/geometryVector";
 export type { Feature } from "./vector/featureTable";
 export { createSelectionVector } from "./vector/filter/selectionVectorUtils";
-export { sliceFeatureTable, sliceFeatureTableGeometry, applyFeatureTableSlice } from "./overzoom/sliceFeatureTable";
-export type { SliceFeatureTableOptions, TileLike } from "./overzoom/sliceFeatureTable";
-export type { SlicedGeometryVector } from "./overzoom/sliceGeometryVector";
 export { encodeFeatureTables } from "./mltEncoder";
 export * from "./processing/filterExports";
 export { GeometryTopologyCursor } from "./vector/geometry/geometryTopologyCursor";
