@@ -12,7 +12,6 @@ export type { TileSetMetadata } from "./metadata/tileset/tilesetMetadata";
 export type { Geometry } from "./vector/geometry/geometryVector";
 export type { Feature } from "./vector/featureTable";
 export { createSelectionVector } from "./vector/filter/selectionVectorUtils";
-export { encodeFeatureTables } from "./mltEncoder";
 export * from "./processing/filterExports";
 export { GeometryTopologyCursor } from "./vector/geometry/geometryTopologyCursor";
 export type { GeometryPartVisitor, TopologyGeometryVector } from "./vector/geometry/geometryTopologyCursor";

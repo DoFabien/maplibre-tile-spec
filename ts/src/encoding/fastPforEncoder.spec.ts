@@ -11,7 +11,6 @@ const EXCEPTION_POS_B = 100;
 const EXCEPTION_OUTLIER_VALUE = 7;
 const UNDERSIZED_PREALLOCATED_STREAM = 1;
 const LARGE_INCOMPRESSIBLE_BLOCK_COUNT = 2050;
-const LARGE_INCOMPRESSIBLE_TEST_TIMEOUT_MS = 15_000;
 
 describe("FastPFOR encoder", () => {
     it("grows byteContainer when workspace capacity is too small", () => {
@@ -64,17 +63,13 @@ describe("FastPFOR encoder", () => {
         expect((exceptionStreamLength ?? 0) % 32).toBe(0);
     });
 
-    it(
-        "round-trips a large incompressible payload",
-        () => {
-            const values = new Uint32Array(BLOCK_SIZE * LARGE_INCOMPRESSIBLE_BLOCK_COUNT);
-            for (let i = 0; i < values.length; i++) values[i] = -(i + 1);
+    it("round-trips a large incompressible payload", () => {
+        const values = new Uint32Array(BLOCK_SIZE * LARGE_INCOMPRESSIBLE_BLOCK_COUNT);
+        for (let i = 0; i < values.length; i++) values[i] = -(i + 1);
 
-            const encoded = encodeFastPforInt32WithWorkspace(values, createFastPforEncoderWorkspace());
-            const decoded = decodeFastPforInt32(encoded, values.length);
+        const encoded = encodeFastPforInt32WithWorkspace(values, createFastPforEncoderWorkspace());
+        const decoded = decodeFastPforInt32(encoded, values.length);
 
-            expect(decoded).toEqual(values);
-        },
-        LARGE_INCOMPRESSIBLE_TEST_TIMEOUT_MS,
-    );
+        expect(decoded).toEqual(values);
+    });
 });
