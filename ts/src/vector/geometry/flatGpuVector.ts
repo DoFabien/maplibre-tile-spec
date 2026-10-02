@@ -2,9 +2,9 @@ import { GpuVector } from "./gpuVector";
 import type { TopologyVector } from "./topologyVector";
 
 export function createFlatGpuVector(
-    geometryTypes: Int32Array | Uint32Array,
+    geometryTypes: Uint32Array,
     triangleOffsets: Uint32Array,
-    indexBuffer: Int32Array | Uint32Array,
+    indexBuffer: Uint32Array,
     vertexBuffer: Int32Array | Uint32Array,
     topologyVector?: TopologyVector,
 ): GpuVector {
@@ -14,9 +14,9 @@ export function createFlatGpuVector(
 //TODO: extend from GeometryVector -> make topology vector optional
 export class FlatGpuVector extends GpuVector {
     constructor(
-        private readonly _geometryTypes: Int32Array | Uint32Array,
+        private readonly _geometryTypes: Uint32Array,
         triangleOffsets: Uint32Array,
-        indexBuffer: Int32Array | Uint32Array,
+        indexBuffer: Uint32Array,
         vertexBuffer: Int32Array | Uint32Array,
         topologyVector?: TopologyVector,
     ) {
@@ -25,10 +25,6 @@ export class FlatGpuVector extends GpuVector {
 
     geometryType(index: number): number {
         return this._geometryTypes[index];
-    }
-
-    get geometryTypes(): Int32Array | Uint32Array {
-        return this._geometryTypes;
     }
 
     get numGeometries(): number {

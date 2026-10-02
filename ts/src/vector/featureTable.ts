@@ -6,10 +6,8 @@ import { DoubleFlatVector } from "./flat/doubleFlatVector";
 import { Int32SequenceVector } from "./sequence/int32SequenceVector";
 import { Int32ConstVector } from "./constant/int32ConstVector";
 import type { GpuVector } from "./geometry/gpuVector";
-import type { SelectionVector } from "./filter/selectionVector";
 
 export type PropertyVectorResolver = (propertyName: string) => Vector | Vector[] | undefined;
-export type PropertyVectorResolutionListener = (propertyVectors: readonly Vector[]) => void;
 
 export interface Feature {
     id: number | bigint | undefined;
@@ -19,7 +17,6 @@ export interface Feature {
 
 export default class FeatureTable {
     private propertyVectorsMap?: Map<string, Vector>;
-    private propertyVectorResolutionListeners?: Set<PropertyVectorResolutionListener>;
     private allPropertyVectorsMaterialized: boolean;
 
     constructor(
@@ -71,23 +68,8 @@ export default class FeatureTable {
             this.propertyVectorsMap.set(vector.name, vector);
             this._propertyVectors?.push(vector);
         }
-        for (const listener of this.propertyVectorResolutionListeners ?? []) {
-            listener(resolvedVectors);
-        }
         propertyVector = this.propertyVectorsMap.get(name);
         return propertyVector;
-    }
-
-    /**
-     * Observes property vectors decoded by the deferred resolver. Vectors that
-     * were decoded with the FeatureTable itself are deliberately not reported.
-     */
-    onPropertyVectorsResolved(listener: PropertyVectorResolutionListener): () => void {
-        this.propertyVectorResolutionListeners ??= new Set();
-        this.propertyVectorResolutionListeners.add(listener);
-        return () => {
-            this.propertyVectorResolutionListeners?.delete(listener);
-        };
     }
 
     get availablePropertyNames(): readonly string[] {
@@ -117,18 +99,6 @@ export default class FeatureTable {
         return this._extent;
     }
 
-    getFeaturesForSelection(sel: SelectionVector): Feature[] {
-        const features: Feature[] = [];
-        const geometries = this.geometryVector.getGeometries();
-
-        for (let j = 0; j < sel.limit; j++) {
-            const i = sel.getIndex(j);
-            features.push(this.featureAt(i, geometries));
-        }
-
-        return features;
-    }
-
     /**
      * Returns all features as an array
      */
@@ -137,35 +107,31 @@ export default class FeatureTable {
         const geometries = this.geometryVector.getGeometries();
 
         for (let i = 0; i < this.numFeatures; i++) {
-            features.push(this.featureAt(i, geometries));
+            let id: number | bigint | undefined;
+            if (this.idVector) {
+                const idValue = this.idVector.getValue(i);
+                if (idValue !== null) {
+                    id = this.containsMaxSafeIntegerValues(this.idVector) ? Number(idValue) : idValue;
+                }
+            }
+            const geometry = {
+                coordinates: geometries[i],
+                type: this.geometryVector.geometryType(i),
+            };
+
+            const properties: { [key: string]: unknown } = {};
+            for (const propertyColumn of this.propertyVectors) {
+                if (!propertyColumn) continue;
+                const columnName = propertyColumn.name;
+                const propertyValue = propertyColumn.getValue(i);
+                if (propertyValue !== null) {
+                    properties[columnName] = propertyValue;
+                }
+            }
+
+            features.push({ id, geometry, properties });
         }
         return features;
-    }
-
-    private featureAt(i: number, geometries: Geometry["coordinates"][]): Feature {
-        let id: number | bigint | undefined;
-        if (this.idVector) {
-            const idValue = this.idVector.getValue(i);
-            if (idValue !== null) {
-                id = this.containsMaxSafeIntegerValues(this.idVector) ? Number(idValue) : idValue;
-            }
-        }
-        const geometry = {
-            coordinates: geometries[i],
-            type: this.geometryVector.geometryType(i),
-        };
-
-        const properties: { [key: string]: unknown } = {};
-        for (const propertyColumn of this.propertyVectors) {
-            if (!propertyColumn) continue;
-            const columnName = propertyColumn.name;
-            const propertyValue = propertyColumn.getValue(i);
-            if (propertyValue !== null) {
-                properties[columnName] = propertyValue;
-            }
-        }
-
-        return { id, geometry, properties };
     }
 
     private containsMaxSafeIntegerValues(idVector: IdVector) {

@@ -13,7 +13,7 @@ import {
 export abstract class GpuVector implements Iterable<CoordinatesArray> {
     protected constructor(
         private readonly _triangleOffsets: Uint32Array,
-        private readonly _indexBuffer: Int32Array | Uint32Array,
+        private readonly _indexBuffer: Uint32Array,
         private readonly _vertexBuffer: Int32Array | Uint32Array,
         private readonly _topologyVector: TopologyVector | null = null,
     ) {}
@@ -28,7 +28,7 @@ export abstract class GpuVector implements Iterable<CoordinatesArray> {
         return this._triangleOffsets;
     }
 
-    get indexBuffer(): Int32Array | Uint32Array {
+    get indexBuffer(): Uint32Array {
         return this._indexBuffer;
     }
 
@@ -92,5 +92,3 @@ export abstract class GpuVector implements Iterable<CoordinatesArray> {
         return null;
     }
 }
-
-export type IGpuVector = GpuVector;

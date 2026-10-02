@@ -14,7 +14,6 @@ describe("FlatGpuVector", () => {
 
         expect(vector).toBeInstanceOf(FlatGpuVector);
         expect(vector.numGeometries).toBe(2);
-        expect(vector.geometryTypes).toBe(geometryTypes);
         expect(vector.triangleOffsets).toBe(triangleOffsets);
         expect(vector.indexBuffer).toBe(indexBuffer);
         expect(vector.vertexBuffer).toBe(vertexBuffer);

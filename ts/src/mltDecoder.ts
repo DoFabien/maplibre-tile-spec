@@ -1,5 +1,5 @@
 import FeatureTable from "./vector/featureTable";
-import { type Column, ComplexType, ScalarType } from "./metadata/tileset/tilesetMetadata";
+import { type Column, ScalarType } from "./metadata/tileset/tilesetMetadata";
 import IntWrapper from "./decoding/intWrapper";
 import { decodeStreamMetadata, type RleEncodedStreamMetadata } from "./metadata/tile/streamMetadataDecoder";
 import { VectorType } from "./vector/vectorType";
@@ -33,9 +33,6 @@ import type { StreamMetadata } from "./metadata/tile/streamMetadataDecoder";
 import type { GeometryVector } from "./vector/geometry/geometryVector";
 import type Vector from "./vector/vector";
 import type { GpuVector } from "./vector/geometry/gpuVector";
-import type { PhysicalLevelTechnique } from "./metadata/tile/physicalLevelTechnique";
-import { PhysicalStreamType } from "./metadata/tile/physicalStreamType";
-import { DictionaryType } from "./metadata/tile/dictionaryType";
 
 export type DecodeTileOptions = {
     layerNames?: ReadonlySet<string> | readonly string[];
@@ -49,14 +46,6 @@ export type TileLayerIndexEntry = {
     extent: number;
     blockStart: number;
     blockEnd: number;
-};
-
-export type TilePhysicalTechniqueEntry = {
-    layerName: string;
-    columnName: string;
-    streamIndex: number;
-    technique: PhysicalLevelTechnique;
-    encodedBytes: number;
 };
 
 export function scanTileLayers(
@@ -93,161 +82,6 @@ export function scanTileLayers(
     }
 
     return layers;
-}
-
-/**
- * Reads stream metadata without decoding stream values. This is intended for
- * corpus validation and diagnostics, where callers need to prove which
- * physical integer encoding a tile actually contains.
- */
-export function scanTilePhysicalTechniques(
-    tile: Uint8Array,
-    options: Pick<DecodeTileOptions, "layerNames"> = {},
-): TilePhysicalTechniqueEntry[] {
-    const offset = new IntWrapper(0);
-    const result: TilePhysicalTechniqueEntry[] = [];
-    const layerNameFilter = normalizeLayerNameFilter(options.layerNames);
-
-    while (offset.get() < tile.length) {
-        const blockLength = decodeVarintInt32(tile, offset, 1)[0] >>> 0;
-        const blockStart = offset.get();
-        const blockEnd = blockStart + blockLength;
-        if (blockEnd > tile.length) {
-            throw new Error(`Block overruns tile: ${blockEnd} > ${tile.length}`);
-        }
-
-        const tag = decodeVarintInt32(tile, offset, 1)[0] >>> 0;
-        if (tag !== 1) {
-            offset.set(blockEnd);
-            continue;
-        }
-
-        const [metadata] = decodeEmbeddedTileSetMetadata(tile, offset);
-        const featureTableMetadata = metadata.featureTables[0];
-        const layerName = featureTableMetadata.name ?? "";
-        if (layerNameFilter && !layerNameFilter.has(layerName)) {
-            offset.set(blockEnd);
-            continue;
-        }
-
-        for (const columnMetadata of featureTableMetadata.columns) {
-            const columnName =
-                columnMetadata.name ??
-                (isLogicalIdColumn(columnMetadata) ? "id" : isGeometryColumn(columnMetadata) ? "geometry" : "");
-            const numStreams = hasStreamCount(columnMetadata)
-                ? decodeVarintInt32(tile, offset, 1)[0]
-                : columnMetadata.nullable
-                  ? 2
-                  : 1;
-
-            if (isStructColumn(columnMetadata)) {
-                scanStructColumnPhysicalTechniques(
-                    tile,
-                    offset,
-                    blockEnd,
-                    layerName,
-                    columnName,
-                    columnMetadata,
-                    numStreams,
-                    result,
-                );
-                continue;
-            }
-
-            for (let streamIndex = 0; streamIndex < numStreams; streamIndex++) {
-                scanPhysicalTechniqueEntry(tile, offset, blockEnd, layerName, columnName, streamIndex, result);
-            }
-        }
-
-        if (offset.get() > blockEnd) {
-            throw new Error(`Stream metadata overruns layer block: ${offset.get()} > ${blockEnd}`);
-        }
-        offset.set(blockEnd);
-    }
-
-    return result;
-}
-
-function scanStructColumnPhysicalTechniques(
-    tile: Uint8Array,
-    offset: IntWrapper,
-    blockEnd: number,
-    layerName: string,
-    columnName: string,
-    columnMetadata: Column,
-    numStreams: number,
-    result: TilePhysicalTechniqueEntry[],
-): void {
-    let scannedStreams = 0;
-    let dictionaryStreamDecoded = false;
-
-    while (!dictionaryStreamDecoded) {
-        if (scannedStreams >= numStreams) {
-            throw new Error(`Shared dictionary data stream missing from column '${columnName}'`);
-        }
-        const streamMetadata = scanPhysicalTechniqueEntry(
-            tile,
-            offset,
-            blockEnd,
-            layerName,
-            columnName,
-            scannedStreams++,
-            result,
-        );
-        dictionaryStreamDecoded =
-            streamMetadata.physicalStreamType === PhysicalStreamType.DATA &&
-            (streamMetadata.logicalStreamType.dictionaryType === DictionaryType.SINGLE ||
-                streamMetadata.logicalStreamType.dictionaryType === DictionaryType.SHARED);
-    }
-
-    for (const child of columnMetadata.complexType?.children ?? []) {
-        if (child.type !== "scalarField") {
-            throw new Error(`Nested complex field '${columnName}${child.name ?? ""}' is not supported`);
-        }
-        const childStreamCount = decodeVarintInt32(tile, offset, 1)[0];
-        const childColumnName = `${columnName}${child.name ?? ""}`;
-        for (let streamIndex = 0; streamIndex < childStreamCount; streamIndex++) {
-            scanPhysicalTechniqueEntry(tile, offset, blockEnd, layerName, childColumnName, streamIndex, result);
-            scannedStreams++;
-        }
-    }
-
-    if (scannedStreams !== numStreams) {
-        throw new Error(`Column '${columnName}' declares ${numStreams} streams but contains ${scannedStreams}`);
-    }
-}
-
-function scanPhysicalTechniqueEntry(
-    tile: Uint8Array,
-    offset: IntWrapper,
-    blockEnd: number,
-    layerName: string,
-    columnName: string,
-    streamIndex: number,
-    result: TilePhysicalTechniqueEntry[],
-): StreamMetadata {
-    const streamMetadata = decodeStreamMetadata(tile, offset);
-    const streamEnd = offset.get() + streamMetadata.byteLength;
-    if (streamEnd > blockEnd) {
-        throw new Error(`Stream overruns layer block: ${streamEnd} > ${blockEnd}`);
-    }
-    result.push({
-        layerName,
-        columnName,
-        streamIndex,
-        technique: streamMetadata.physicalLevelTechnique,
-        encodedBytes: streamMetadata.byteLength,
-    });
-    offset.set(streamEnd);
-    return streamMetadata;
-}
-
-function isStructColumn(column: Column): boolean {
-    return (
-        column.type === "complexType" &&
-        column.complexType?.type === "physicalType" &&
-        column.complexType.physicalType === ComplexType.STRUCT
-    );
 }
 
 export function decodeTileLayer(

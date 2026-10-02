@@ -1,5 +1,12 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import BitVector from "../flat/bitVector";
+import type * as decodingUtils from "../../decoding/decodingUtils";
+import { decodeString } from "../../decoding/decodingUtils";
+
+vi.mock("../../decoding/decodingUtils", async (importOriginal) => {
+    const original = await importOriginal<typeof decodingUtils>();
+    return { ...original, decodeString: vi.fn(original.decodeString) };
+});
 import { StringFsstDictionaryVector, createStringFsstDictionaryVector } from "./stringFsstDictionaryVector";
 
 describe("StringFsstDictionaryVector", () => {
@@ -51,10 +58,10 @@ describe("StringFsstDictionaryVector", () => {
         expect(vector.getValue(1)).toBe("");
         expect(vector.getValue(3)).toBeNull();
 
-        vector.decoded.fill("x".charCodeAt(0));
+        vi.mocked(decodeString).mockClear();
         expect(vector.getValue(2)).toBe("café");
         expect(vector.getValue(1)).toBe("");
-        expect(vector.decodedStringCount).toBe(2);
+        expect(decodeString).not.toHaveBeenCalled();
     });
 
     it("does not retain a decoded-string cache for excessive cardinality", () => {
@@ -71,10 +78,10 @@ describe("StringFsstDictionaryVector", () => {
             undefined,
         );
 
+        vi.mocked(decodeString).mockClear();
         expect(vector.getValue(0)).toBe("a");
-        vector.decoded[0] = "b".charCodeAt(0);
-        expect(vector.getValue(0)).toBe("b");
-        expect(vector.decodedStringCount).toBe(2);
+        expect(vector.getValue(0)).toBe("a");
+        expect(decodeString).toHaveBeenCalledTimes(2);
     });
 
     it("does not retain a decoded-string cache for an excessive decoded byte budget", () => {
@@ -91,9 +98,9 @@ describe("StringFsstDictionaryVector", () => {
             undefined,
         );
 
+        vi.mocked(decodeString).mockClear();
         expect(vector.getValue(0)?.charCodeAt(0)).toBe("a".charCodeAt(0));
-        vector.decoded[0] = "b".charCodeAt(0);
-        expect(vector.getValue(0)?.charCodeAt(0)).toBe("b".charCodeAt(0));
-        expect(vector.decodedStringCount).toBe(2);
+        expect(vector.getValue(0)?.charCodeAt(0)).toBe("a".charCodeAt(0));
+        expect(decodeString).toHaveBeenCalledTimes(2);
     });
 });

@@ -17,7 +17,6 @@ export class StringFsstDictionaryVector extends VariableSizeVector<Uint8Array, s
     private symbolLengthBuffer?: Uint32Array;
     private decodedDictionary!: Uint8Array;
     private decodedValueCache?: Array<string | undefined> | null;
-    private _decodedStringCount = 0;
 
     constructor(
         name: string,
@@ -45,22 +44,15 @@ export class StringFsstDictionaryVector extends VariableSizeVector<Uint8Array, s
         const end = this.offsetBuffer[offset + 1];
         const cache = this.getDecodedValueCache();
         if (!cache) {
-            this._decodedStringCount++;
             return decodeString(this.decodedDictionary, start, end);
         }
 
         const cached = cache[offset];
         if (cached !== undefined) return cached;
 
-        this._decodedStringCount++;
         const decoded = decodeString(this.decodedDictionary, start, end);
         cache[offset] = decoded;
         return decoded;
-    }
-
-    /** Number of UTF-8 decodes performed by this vector. */
-    get decodedStringCount(): number {
-        return this._decodedStringCount;
     }
 
     private ensureDecodedDictionary(): void {
@@ -105,10 +97,6 @@ export class StringFsstDictionaryVector extends VariableSizeVector<Uint8Array, s
         }
 
         return lengthBuffer;
-    }
-
-    get decoded() {
-        return this.decodedDictionary;
     }
 
     /** Number of dictionary entries. */

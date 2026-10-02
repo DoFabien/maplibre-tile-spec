@@ -5,7 +5,7 @@ import { parse, join } from "node:path";
 import { VectorTile, type VectorTileFeature } from "@mapbox/vector-tile";
 import { PbfReader } from "pbf";
 
-import { type FeatureTable, type Feature, decodeTile, scanTileLayers, scanTilePhysicalTechniques } from ".";
+import { type FeatureTable, type Feature, decodeTile, scanTileLayers } from ".";
 import path from "node:path";
 import fs from "node:fs";
 
@@ -34,26 +34,6 @@ describe("MLT Decoder - MVT comparison for Bing tiles", () => {
     const bingMvtTileDir = "../test/fixtures/bing";
     testTiles(bingMltTileDir, bingMvtTileDir);
 }, 150000);
-
-describe("MLT physical technique scan", () => {
-    it("distinguishes the standard Bing corpus from an explicit FastPFOR fixture", () => {
-        const bing = new Uint8Array(
-            fs.readFileSync(path.resolve(__dirname, "../../test/expected/tag0x01/bing/4-12-6.mlt")),
-        );
-        const fastPfor = new Uint8Array(
-            fs.readFileSync(path.resolve(__dirname, "../../test/synthetic/0x01/props_u32_fpf_256.mlt")),
-        );
-
-        assert.equal(
-            scanTilePhysicalTechniques(bing).some((stream) => stream.technique === "FAST_PFOR"),
-            false,
-        );
-        assert.equal(
-            scanTilePhysicalTechniques(fastPfor).some((stream) => stream.technique === "FAST_PFOR"),
-            true,
-        );
-    });
-});
 
 describe("FeatureTable", () => {
     it("should iterate through features correctly", () => {
@@ -126,10 +106,6 @@ describe("FeatureTable", () => {
         assert.deepEqual(noPropertyFeatureTable.propertyVectors, []);
         assert.ok(noPropertyFeatureTable.availablePropertyNames.includes(propertyName));
 
-        const resolvedPropertyNames: string[][] = [];
-        const stopObserving = noPropertyFeatureTable.onPropertyVectorsResolved((vectors) => {
-            resolvedPropertyNames.push(vectors.map((vector) => vector.name));
-        });
         const deferredProperty = noPropertyFeatureTable.getPropertyVector(propertyName);
         assert.ok(deferredProperty);
         assert.equal(deferredProperty.getValue(0), fullFeatureTable.getPropertyVector(propertyName)?.getValue(0));
@@ -139,16 +115,6 @@ describe("FeatureTable", () => {
         );
         assert.equal(noPropertyFeatureTable.getPropertyVector(propertyName), deferredProperty);
         assert.equal(noPropertyFeatureTable.getPropertyVector("missing"), undefined);
-        assert.deepEqual(resolvedPropertyNames, [[propertyName]]);
-
-        stopObserving();
-        const secondPropertyName = fullFeatureTable.propertyVectors?.find(
-            (vector) => vector.name !== propertyName,
-        )?.name;
-        if (secondPropertyName) {
-            noPropertyFeatureTable.getPropertyVector(secondPropertyName);
-            assert.deepEqual(resolvedPropertyNames, [[propertyName]]);
-        }
     });
 });
 

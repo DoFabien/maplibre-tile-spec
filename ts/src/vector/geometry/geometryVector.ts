@@ -24,15 +24,12 @@ export interface MortonSettings {
     coordinateShift: number;
 }
 
-export type VertexOffsets = Int32Array | Uint32Array;
-export type VertexBuffer = Int32Array | Uint32Array;
-
 export abstract class GeometryVector {
     protected constructor(
         private readonly _vertexBufferType: VertexBufferType,
         private readonly _topologyVector: TopologyVector,
-        private readonly _vertexOffsets: VertexOffsets | undefined,
-        private readonly _vertexBuffer: VertexBuffer,
+        private readonly _vertexOffsets: Uint32Array | undefined,
+        private readonly _vertexBuffer: Int32Array | Uint32Array,
         private readonly _mortonSettings?: MortonSettings,
     ) {}
 
@@ -44,11 +41,11 @@ export abstract class GeometryVector {
         return this._topologyVector;
     }
 
-    get vertexOffsets(): VertexOffsets | undefined {
+    get vertexOffsets(): Uint32Array | undefined {
         return this._vertexOffsets;
     }
 
-    get vertexBuffer(): VertexBuffer {
+    get vertexBuffer(): Int32Array | Uint32Array {
         return this._vertexBuffer;
     }
 
@@ -123,5 +120,3 @@ export abstract class GeometryVector {
         return geometryTypes;
     }
 }
-
-export type IGeometryVector = GeometryVector;

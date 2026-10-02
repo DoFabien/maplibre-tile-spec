@@ -1,7 +1,7 @@
-import { type SINGLE_PART_GEOMETRY_TYPE, GEOMETRY_TYPE } from "./geometryType";
+import type { SINGLE_PART_GEOMETRY_TYPE } from "./geometryType";
 import { type SelectionVector } from "../filter/selectionVector";
-import { ConstSelectionVector } from "../filter/constSelectionVector";
 import { FlatSelectionVector } from "../filter/flatSelectionVector";
+import { SequenceSelectionVector } from "../filter/sequenceSelectionVector";
 
 /**
  * Creates a selection vector for a const geometry vector filtered by type.
@@ -12,7 +12,7 @@ import { FlatSelectionVector } from "../filter/flatSelectionVector";
  * @param targetType - The single-part geometry type to filter for (POINT, LINESTRING, or POLYGON)
  * @param vectorType - The geometry type of all geometries in the vector
  * @param numVectorGeometries - Total number of geometries in the vector
- * @returns ConstSelectionVector.full if types match, ConstSelectionVector.empty otherwise
+ * @returns A selection of every geometry if the types match, an empty selection otherwise
  */
 export function createSelectionVectorByTypeConst(
     targetType: SINGLE_PART_GEOMETRY_TYPE,
@@ -20,9 +20,9 @@ export function createSelectionVectorByTypeConst(
     numVectorGeometries: number,
 ): SelectionVector {
     if (targetType !== vectorType && targetType + 3 !== vectorType) {
-        return ConstSelectionVector.empty(numVectorGeometries);
+        return new FlatSelectionVector(new Uint32Array(0));
     }
-    return ConstSelectionVector.full(numVectorGeometries);
+    return new SequenceSelectionVector(0, 1, numVectorGeometries);
 }
 
 /**
@@ -73,10 +73,10 @@ export function createSelectionVectorByTypeFlat(
     }
 
     if (index === 0) {
-        return ConstSelectionVector.empty(numVectorGeometries);
+        return new FlatSelectionVector(new Uint32Array(0));
     }
     if (index === numVectorGeometries) {
-        return ConstSelectionVector.full(numVectorGeometries);
+        return new SequenceSelectionVector(0, 1, numVectorGeometries);
     }
     return new FlatSelectionVector(selectionVector.subarray(0, index));
 }
@@ -110,29 +110,3 @@ export function filterSelectedByTypeFlat(
     selectionVector.setLimit(limit);
 }
 
-/**
- * Checks if a const geometry vector contains polygon geometries.
- *
- * @param geometryType - The geometry type (all geometries have this type in a const vector)
- * @returns True if the type is POLYGON or MULTIPOLYGON
- */
-export function containsPolygonGeometryConst(geometryType: number): boolean {
-    return geometryType === GEOMETRY_TYPE.POLYGON || geometryType === GEOMETRY_TYPE.MULTIPOLYGON;
-}
-
-/**
- * Checks if a flat geometry vector contains any polygon geometries.
- *
- * Scans through all geometry types looking for POLYGON or MULTIPOLYGON.
- *
- * @param geometryTypes - Array of geometry types to check
- * @returns True if any geometry is POLYGON or MULTIPOLYGON
- */
-export function containsPolygonGeometryFlat(geometryTypes: Int32Array | Uint32Array): boolean {
-    for (let i = 0; i < geometryTypes.length; i++) {
-        if (containsPolygonGeometryConst(geometryTypes[i])) {
-            return true;
-        }
-    }
-    return false;
-}

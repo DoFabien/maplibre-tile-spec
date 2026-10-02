@@ -7,7 +7,6 @@ const MAX_DECODED_STRING_CACHE_BYTES = 1024 * 1024;
 
 export class StringDictionaryVector extends VariableSizeVector<Uint8Array, string> {
     private decodedValueCache?: Array<string | undefined> | null;
-    private _decodedStringCount = 0;
 
     constructor(
         name: string,
@@ -15,7 +14,6 @@ export class StringDictionaryVector extends VariableSizeVector<Uint8Array, strin
         offsetBuffer: Uint32Array,
         dictionaryBuffer: Uint8Array,
         nullabilityBuffer?: BitVector,
-        private readonly sortedIndices?: Uint32Array,
     ) {
         super(name, offsetBuffer, dictionaryBuffer, nullabilityBuffer ?? indexBuffer.length);
         this.indexBuffer = indexBuffer;
@@ -31,22 +29,15 @@ export class StringDictionaryVector extends VariableSizeVector<Uint8Array, strin
         const end = this.offsetBuffer[offset + 1];
         const cache = this.getDecodedValueCache();
         if (!cache) {
-            this._decodedStringCount++;
             return decodeString(this.dataBuffer, start, end);
         }
 
         const cached = cache[offset];
         if (cached !== undefined) return cached;
 
-        this._decodedStringCount++;
         const decoded = decodeString(this.dataBuffer, start, end);
         cache[offset] = decoded;
         return decoded;
-    }
-
-    /** Number of UTF-8 decodes performed by this vector. */
-    get decodedStringCount(): number {
-        return this._decodedStringCount;
     }
 
     /**
@@ -74,14 +65,6 @@ export class StringDictionaryVector extends VariableSizeVector<Uint8Array, strin
 
     get index(): Uint32Array {
         return this.indexBuffer;
-    }
-
-    get isSorted(): boolean {
-        return this.sortedIndices !== undefined;
-    }
-
-    get sorted(): Uint32Array | undefined {
-        return this.sortedIndices;
     }
 }
 

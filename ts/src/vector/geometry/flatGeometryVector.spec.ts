@@ -26,7 +26,6 @@ describe("FlatGeometryVector", () => {
         expect(vector).toBeInstanceOf(FlatGeometryVector);
         expect(vector.numGeometries).toBe(2);
         expect(vector.vertexBufferType).toBe(VertexBufferType.VEC_2);
-        expect(vector.geometryTypes).toBe(geometryTypes);
         expect(vector.mortonSettings).toBeUndefined();
     });
 

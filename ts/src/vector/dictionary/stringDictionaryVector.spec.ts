@@ -23,7 +23,6 @@ describe("StringDictionaryVector", () => {
         vector.data.fill("x".charCodeAt(0));
         expect(vector.getValue(2)).toBe("café");
         expect(vector.getValue(1)).toBe("");
-        expect(vector.decodedStringCount).toBe(2);
     });
 
     it("does not retain a decoded-string cache for excessive cardinality", () => {
@@ -40,7 +39,6 @@ describe("StringDictionaryVector", () => {
         expect(vector.getValue(0)).toBe("a");
         vector.data[0] = "b".charCodeAt(0);
         expect(vector.getValue(0)).toBe("b");
-        expect(vector.decodedStringCount).toBe(2);
     });
 
     it("does not retain a decoded-string cache for an excessive dictionary byte budget", () => {
@@ -51,6 +49,5 @@ describe("StringDictionaryVector", () => {
         expect(vector.getValue(0)).toBe("a");
         vector.data[0] = "b".charCodeAt(0);
         expect(vector.getValue(0)).toBe("b");
-        expect(vector.decodedStringCount).toBe(2);
     });
 });
