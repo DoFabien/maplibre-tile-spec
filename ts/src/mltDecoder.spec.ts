@@ -5,7 +5,9 @@ import { parse, join } from "node:path";
 import { VectorTile, type VectorTileFeature } from "@mapbox/vector-tile";
 import { PbfReader } from "pbf";
 
-import { type FeatureTable, type Feature, decodeTile, scanTileLayers } from ".";
+import { type FeatureTable, type Feature, decodeTile, decodeTileLayer, scanTileLayers } from ".";
+import IntWrapper from "./decoding/intWrapper";
+import { decodeVarintInt32 } from "./decoding/integerDecodingUtils";
 import path from "node:path";
 import fs from "node:fs";
 
@@ -57,18 +59,7 @@ describe("FeatureTable", () => {
         assert.equal(featureCount, table.numFeatures);
     });
 
-    it("should decode only requested layers", () => {
-        const bytes = new Uint8Array(fs.readFileSync(ITERATOR_TILE));
-
-        const featureTables = decodeTile(bytes, undefined, true, { layerNames: ["layer"] });
-        assert.equal(featureTables.length, 1);
-        assert.equal(featureTables[0].name, "layer");
-
-        const skippedFeatureTables = decodeTile(bytes, undefined, true, { layerNames: ["missing"] });
-        assert.equal(skippedFeatureTables.length, 0);
-    });
-
-    it("should scan tile layer metadata without decoding feature tables", () => {
+    it("should scan tile layers and decode one of them alone", () => {
         const bytes = new Uint8Array(fs.readFileSync(ITERATOR_TILE));
         const layers = scanTileLayers(bytes);
 
@@ -76,10 +67,21 @@ describe("FeatureTable", () => {
             layers.map((layer) => layer.name),
             ["layer"],
         );
-        assert.equal(layers[0].extent, 4096);
-        assert.ok(layers[0].blockStart < layers[0].blockEnd);
+        assert.deepEqual(decodeTileLayer(bytes, layers[0]).getFeatures(), decodeTile(bytes)[0].getFeatures());
+    });
 
-        assert.deepEqual(scanTileLayers(bytes, { layerNames: ["missing"] }), []);
+    it("should read the layers of tag 2 blocks as those of tag 1 blocks", () => {
+        const bytes = new Uint8Array(fs.readFileSync(ITERATOR_TILE));
+        const tag2Bytes = bytes.slice();
+        const tagOffset = new IntWrapper(0);
+        decodeVarintInt32(tag2Bytes, tagOffset, 1);
+        tag2Bytes[tagOffset.get()] = 2;
+
+        assert.deepEqual(
+            scanTileLayers(tag2Bytes).map((layer) => layer.name),
+            ["layer"],
+        );
+        assert.deepEqual(decodeTile(tag2Bytes)[0].getFeatures(), decodeTile(bytes)[0].getFeatures());
     });
 
     it("should decode only requested property columns", () => {
@@ -88,21 +90,14 @@ describe("FeatureTable", () => {
         const propertyName = fullFeatureTable.propertyVectors?.[0]?.name;
         assert.ok(propertyName);
 
-        const filteredFeatureTable = decodeTile(bytes, undefined, true, {
-            propertyColumnNamesByLayer: {
-                layer: [propertyName],
-            },
-        })[0];
+        const [layer] = scanTileLayers(bytes);
+        const filteredFeatureTable = decodeTileLayer(bytes, layer, undefined, true, new Set([propertyName]));
         assert.deepEqual(
             filteredFeatureTable.propertyVectors?.map((propertyVector) => propertyVector.name),
             [propertyName],
         );
 
-        const noPropertyFeatureTable = decodeTile(bytes, undefined, true, {
-            propertyColumnNamesByLayer: {
-                layer: [],
-            },
-        })[0];
+        const noPropertyFeatureTable = decodeTileLayer(bytes, layer, undefined, true, new Set());
         assert.deepEqual(noPropertyFeatureTable.propertyVectors, []);
         assert.ok(noPropertyFeatureTable.availablePropertyNames.includes(propertyName));
 

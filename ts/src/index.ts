@@ -1,5 +1,5 @@
 export { default as decodeTile, decodeTileLayer, scanTileLayers } from "./mltDecoder";
-export type { DecodeTileOptions, TileLayerIndexEntry } from "./mltDecoder";
+export type { TileLayerIndexEntry } from "./mltDecoder";
 export { encodeTile } from "./encoding/mltEncoder";
 export { default as FeatureTable } from "./vector/featureTable";
 export { GeometryVector } from "./vector/geometry/geometryVector";

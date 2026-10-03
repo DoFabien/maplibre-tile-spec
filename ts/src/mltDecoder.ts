@@ -34,27 +34,17 @@ import type { GeometryVector } from "./vector/geometry/geometryVector";
 import type Vector from "./vector/vector";
 import type { GpuVector } from "./vector/geometry/gpuVector";
 
-export type DecodeTileOptions = {
-    layerNames?: ReadonlySet<string> | readonly string[];
-    propertyColumnNamesByLayer?:
-        | ReadonlyMap<string, ReadonlySet<string> | null>
-        | Record<string, ReadonlySet<string> | readonly string[] | null>;
-};
-
+/** The position of a layer in a tile, from which {@link decodeTileLayer} decodes it alone. */
 export type TileLayerIndexEntry = {
     name: string;
-    extent: number;
     blockStart: number;
     blockEnd: number;
 };
 
-export function scanTileLayers(
-    tile: Uint8Array,
-    options: Pick<DecodeTileOptions, "layerNames"> = {},
-): TileLayerIndexEntry[] {
+/** Lists the layers of a tile without decoding their columns. */
+export function scanTileLayers(tile: Uint8Array): TileLayerIndexEntry[] {
     const offset = new IntWrapper(0);
     const layers: TileLayerIndexEntry[] = [];
-    const layerNameFilter = normalizeLayerNameFilter(options.layerNames);
 
     while (offset.get() < tile.length) {
         const blockLength = decodeVarintInt32(tile, offset, 1)[0] >>> 0;
@@ -65,52 +55,38 @@ export function scanTileLayers(
         }
 
         const tag = decodeVarintInt32(tile, offset, 1)[0] >>> 0;
-        if (tag === 1) {
-            const [metadata, extent] = decodeEmbeddedTileSetMetadata(tile, offset);
-            const layerName = metadata.featureTables[0].name ?? "";
-            if (!layerNameFilter || layerNameFilter.has(layerName)) {
-                layers.push({
-                    name: layerName,
-                    extent,
-                    blockStart,
-                    blockEnd,
-                });
-            }
+        if (tag === 1 || tag === 2) {
+            const [metadata] = decodeEmbeddedTileSetMetadata(tile, offset);
+            layers.push({ name: metadata.featureTables[0].name ?? "", blockStart, blockEnd });
         }
-
         offset.set(blockEnd);
     }
 
     return layers;
 }
 
+/**
+ * Decodes one layer of a tile. With `propertyNames`, only these property columns are decoded with the layer;
+ * the others are decoded when the feature table is first asked for them.
+ */
 export function decodeTileLayer(
     tile: Uint8Array,
     layer: TileLayerIndexEntry,
     geometryScaling?: GeometryScaling,
     idWithinMaxSafeInteger = true,
-    options: Pick<DecodeTileOptions, "propertyColumnNamesByLayer"> = {},
+    propertyNames?: Set<string>,
 ): FeatureTable {
     const offset = new IntWrapper(layer.blockStart);
-    const tag = decodeVarintInt32(tile, offset, 1)[0] >>> 0;
-    if (tag !== 1) {
-        throw new Error(`Expected MLT layer block tag 1, got ${tag}`);
-    }
-
+    decodeVarintInt32(tile, offset, 1);
     const [metadata, extent] = decodeEmbeddedTileSetMetadata(tile, offset);
-    const featureTableMetadata = metadata.featureTables[0];
-    if ((featureTableMetadata.name ?? "") !== layer.name) {
-        throw new Error(`MLT layer index mismatch: expected '${layer.name}', got '${featureTableMetadata.name ?? ""}'`);
-    }
-
     return decodeFeatureTable(
         tile,
         offset,
-        featureTableMetadata,
+        metadata.featureTables[0],
         extent,
         geometryScaling,
         idWithinMaxSafeInteger,
-        options.propertyColumnNamesByLayer,
+        propertyNames,
     );
 }
 
@@ -126,48 +102,8 @@ export default function decodeTile(
     tile: Uint8Array,
     geometryScaling?: GeometryScaling,
     idWithinMaxSafeInteger = true,
-    options: DecodeTileOptions = {},
 ): FeatureTable[] {
-    const offset = new IntWrapper(0);
-    const featureTables: FeatureTable[] = [];
-    const layerNameFilter = normalizeLayerNameFilter(options.layerNames);
-
-    while (offset.get() < tile.length) {
-        const blockLength = decodeVarintInt32(tile, offset, 1)[0] >>> 0;
-        const blockStart = offset.get();
-        const blockEnd = blockStart + blockLength;
-        if (blockEnd > tile.length) {
-            throw new Error(`Block overruns tile: ${blockEnd} > ${tile.length}`);
-        }
-
-        const tag = decodeVarintInt32(tile, offset, 1)[0] >>> 0;
-        if (tag !== 1 && tag !== 2) {
-            // Skip unknown block types
-            offset.set(blockEnd);
-            continue;
-        }
-
-        const [metadata, extent] = decodeEmbeddedTileSetMetadata(tile, offset);
-        const featureTableMetadata = metadata.featureTables[0];
-        if (layerNameFilter && !layerNameFilter.has(featureTableMetadata.name)) {
-            offset.set(blockEnd);
-            continue;
-        }
-        featureTables.push(
-            decodeFeatureTable(
-                tile,
-                offset,
-                featureTableMetadata,
-                extent,
-                geometryScaling,
-                idWithinMaxSafeInteger,
-                options.propertyColumnNamesByLayer,
-            ),
-        );
-        offset.set(blockEnd);
-    }
-
-    return featureTables;
+    return scanTileLayers(tile).map((layer) => decodeTileLayer(tile, layer, geometryScaling, idWithinMaxSafeInteger));
 }
 
 function decodeFeatureTable(
@@ -177,10 +113,9 @@ function decodeFeatureTable(
     extent: number,
     geometryScaling: GeometryScaling | undefined,
     idWithinMaxSafeInteger: boolean,
-    propertyColumnNamesByLayer: DecodeTileOptions["propertyColumnNamesByLayer"],
+    propertyColumnNames: Set<string> | undefined,
 ): FeatureTable {
     const layerName = featureTableMetadata.name ?? "";
-    const propertyColumnNames = getPropertyColumnNameFilter(propertyColumnNamesByLayer, layerName);
 
     let idVector: IdVector | null = null;
     let geometryVector: GeometryVector | GpuVector | null = null;
@@ -330,35 +265,6 @@ function getColumnPropertyNames(columnMetadata: Column): string[] {
     return (columnMetadata.complexType?.children ?? [])
         .map((child) => (child.name ? `${columnName}${child.name}` : columnName))
         .filter((propertyName) => propertyName.length > 0);
-}
-
-function normalizeLayerNameFilter(
-    layerNames?: ReadonlySet<string> | readonly string[],
-): ReadonlySet<string> | undefined {
-    if (!layerNames) {
-        return undefined;
-    }
-
-    return layerNames instanceof Set ? layerNames : new Set(layerNames);
-}
-
-function getPropertyColumnNameFilter(
-    propertyColumnNamesByLayer: DecodeTileOptions["propertyColumnNamesByLayer"],
-    layerName: string,
-): Set<string> | undefined {
-    if (!propertyColumnNamesByLayer) {
-        return undefined;
-    }
-
-    const rawNames =
-        propertyColumnNamesByLayer instanceof Map
-            ? propertyColumnNamesByLayer.get(layerName)
-            : propertyColumnNamesByLayer[layerName];
-    if (rawNames === undefined || rawNames === null) {
-        return undefined;
-    }
-
-    return rawNames instanceof Set ? new Set(rawNames) : new Set(rawNames);
 }
 
 function decodeIdColumn(
