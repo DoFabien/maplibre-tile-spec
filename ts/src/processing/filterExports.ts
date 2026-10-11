@@ -8,14 +8,5 @@ export {
     invertSelectionVector,
     intersectSelectionVectors,
 } from "../vector/filter/selectionVectorUtils";
-export { StringDictionaryVector, createStringDictionaryVector } from "../vector/dictionary/stringDictionaryVector";
-export { createStringFlatVector, createNullableStringVector } from "../vector/flat/stringFlatVector";
-export {
-    StringFsstDictionaryVector,
-    createStringFsstDictionaryVector,
-} from "../vector/fsst-dictionary/stringFsstDictionaryVector";
-export { BooleanFlatVector } from "../vector/flat/booleanFlatVector";
-export { Int32FlatVector, Int32FlatVector as IntFlatVector } from "../vector/flat/int32FlatVector";
-export { default as BitVector } from "../vector/flat/bitVector";
-export { createConstGeometryVector } from "../vector/geometry/constGeometryVector";
-export { default as TopologyVector } from "../vector/geometry/topologyVector";
+export { StringDictionaryVector } from "../vector/dictionary/stringDictionaryVector";
+export { StringFsstDictionaryVector } from "../vector/fsst-dictionary/stringFsstDictionaryVector";

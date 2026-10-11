@@ -1,5 +1,5 @@
 import { VariableSizeVector } from "../variableSizeVector";
-import BitVector from "../flat/bitVector";
+import type BitVector from "../flat/bitVector";
 import { decodeString } from "../../decoding/decodingUtils";
 
 const MAX_DECODED_STRING_CACHE_ENTRIES = 65_536;
@@ -66,39 +66,4 @@ export class StringDictionaryVector extends VariableSizeVector<Uint8Array, strin
     get index(): Uint32Array {
         return this.indexBuffer;
     }
-}
-
-export function createStringDictionaryVector(values: (string | null)[], name: string): StringDictionaryVector {
-    const encoder = new TextEncoder();
-    const nonNullValues = values.filter((v): v is string => v !== null);
-    const uniqueValues = Array.from(new Set(nonNullValues));
-    const encodedDict = uniqueValues.map((value) => encoder.encode(value));
-
-    const dictionarySize = encodedDict.reduce((sum, value) => sum + value.length, 0);
-    const offsetBuffer = new Uint32Array(uniqueValues.length + 1);
-    const dictionaryBuffer = new Uint8Array(dictionarySize);
-
-    let currentOffset = 0;
-    for (let i = 0; i < encodedDict.length; i++) {
-        dictionaryBuffer.set(encodedDict[i], currentOffset);
-        currentOffset += encodedDict[i].length;
-        offsetBuffer[i + 1] = currentOffset;
-    }
-
-    const indexBuffer = new Uint32Array(values.length);
-    const hasNulls = values.some((value) => value === null);
-    const nullabilityBytes = hasNulls ? new Uint8Array(Math.ceil(values.length / 8)) : undefined;
-
-    for (let i = 0; i < values.length; i++) {
-        const value = values[i];
-        if (value !== null) {
-            indexBuffer[i] = uniqueValues.indexOf(value);
-            if (nullabilityBytes) {
-                nullabilityBytes[Math.floor(i / 8)] |= 1 << (i % 8);
-            }
-        }
-    }
-
-    const nullabilityBuffer = nullabilityBytes ? new BitVector(nullabilityBytes, values.length) : undefined;
-    return new StringDictionaryVector(name, indexBuffer, offsetBuffer, dictionaryBuffer, nullabilityBuffer);
 }

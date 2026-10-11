@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { encodePointGeometryVector } from "../encoding/constGeometryVectorEncoder";
 import { createConstGeometryVector } from "./geometry/constGeometryVector";
 import { GEOMETRY_TYPE } from "./geometry/geometryType";
-import TopologyVector from "./geometry/topologyVector";
-import { createStringFlatVector } from "./flat/stringFlatVector";
+import type { TopologyVector } from "./geometry/topologyVector";
+import { StringFlatVector } from "./flat/stringFlatVector";
 import FeatureTable from "./featureTable";
 import type Vector from "./vector";
 
@@ -18,7 +18,7 @@ function createDeferredTable() {
         createConstGeometryVector(
             1,
             GEOMETRY_TYPE.POINT,
-            new TopologyVector(null, null, null),
+            topology(null, null, null),
             undefined,
             new Int32Array([0, 0]),
         ),
@@ -83,3 +83,36 @@ describe("FeatureTable", () => {
         expect(table.getPropertyVector("missing")).toBeUndefined();
     });
 });
+
+function createStringFlatVector(values: string[], name: string): StringFlatVector {
+    const encoder = new TextEncoder();
+    const encodedValues = values.map((v) => encoder.encode(v));
+    const totalSize = encodedValues.reduce((sum, v) => sum + v.length, 0);
+
+    const offsetBuffer = new Uint32Array(values.length + 1);
+    const dataBuffer = new Uint8Array(totalSize);
+
+    let currentOffset = 0;
+    offsetBuffer[0] = 0;
+
+    for (let i = 0; i < encodedValues.length; i++) {
+        const encoded = encodedValues[i];
+        dataBuffer.set(encoded, currentOffset);
+        currentOffset += encoded.length;
+        offsetBuffer[i + 1] = currentOffset;
+    }
+
+    return new StringFlatVector(name, offsetBuffer, dataBuffer);
+}
+
+function topology(
+    geometryOffsets?: Uint32Array | null,
+    partOffsets?: Uint32Array | null,
+    ringOffsets?: Uint32Array | null,
+): TopologyVector {
+    return {
+        geometryOffsets: geometryOffsets ?? undefined,
+        partOffsets: partOffsets ?? undefined,
+        ringOffsets: ringOffsets ?? undefined,
+    };
+}

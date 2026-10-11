@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { VertexBufferType } from "./vertexBufferType";
 import type { MortonSettings } from "./geometryVector";
-import TopologyVector from "./topologyVector";
+import type { TopologyVector } from "./topologyVector";
 import { createConstGeometryVector, createMortonEncodedConstGeometryVector } from "./constGeometryVector";
 import { GEOMETRY_TYPE, SINGLE_PART_GEOMETRY_TYPE } from "./geometryType";
 import { FlatSelectionVector } from "../filter/flatSelectionVector";
@@ -208,7 +208,7 @@ describe("ConstGeometryVector", () => {
 function createSimpleTopology(numGeometries: number): TopologyVector {
     const offsets = new Uint32Array(numGeometries + 1);
     for (let i = 0; i <= numGeometries; i++) offsets[i] = i;
-    return new TopologyVector(offsets, offsets, offsets);
+    return topology(offsets, offsets, offsets);
 }
 
 // Helper to create identity vertex offsets [0, 1, 2, ...n-1]
@@ -226,4 +226,16 @@ function createVertexBuffer(numVertices: number): Int32Array {
         buffer[i * 2 + 1] = 20 * (i + 1);
     }
     return buffer;
+}
+
+function topology(
+    geometryOffsets?: Uint32Array | null,
+    partOffsets?: Uint32Array | null,
+    ringOffsets?: Uint32Array | null,
+): TopologyVector {
+    return {
+        geometryOffsets: geometryOffsets ?? undefined,
+        partOffsets: partOffsets ?? undefined,
+        ringOffsets: ringOffsets ?? undefined,
+    };
 }

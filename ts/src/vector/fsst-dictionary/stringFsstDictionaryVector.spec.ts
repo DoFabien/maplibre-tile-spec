@@ -7,7 +7,7 @@ vi.mock("../../decoding/decodingUtils", async (importOriginal) => {
     const original = await importOriginal<typeof decodingUtils>();
     return { ...original, decodeString: vi.fn(original.decodeString) };
 });
-import { StringFsstDictionaryVector, createStringFsstDictionaryVector } from "./stringFsstDictionaryVector";
+import { StringFsstDictionaryVector } from "./stringFsstDictionaryVector";
 
 describe("StringFsstDictionaryVector", () => {
     let indexBuffer: Uint32Array;
@@ -104,3 +104,57 @@ describe("StringFsstDictionaryVector", () => {
         expect(decodeString).toHaveBeenCalledTimes(2);
     });
 });
+
+function createStringFsstDictionaryVector(values: (string | null)[], name: string): StringFsstDictionaryVector {
+    const encoder = new TextEncoder();
+    const nonNullValues = values.filter((v): v is string => v !== null);
+    const uniqueValues = Array.from(new Set(nonNullValues));
+    const encodedDict = uniqueValues.map((v) => encoder.encode(v));
+
+    // Create FSST-compressed dictionary
+    const compressedSize = encodedDict.reduce((sum, v) => sum + v.length * 2, 0);
+    const dictionaryBuffer = new Uint8Array(compressedSize);
+    const offsetBuffer = new Uint32Array(uniqueValues.length + 1);
+    let compressedOffset = 0;
+    let decompressedOffset = 0;
+    offsetBuffer[0] = 0;
+
+    for (let i = 0; i < encodedDict.length; i++) {
+        const encoded = encodedDict[i];
+        for (let j = 0; j < encoded.length; j++) {
+            dictionaryBuffer[compressedOffset++] = 255; // Escape code
+            dictionaryBuffer[compressedOffset++] = encoded[j];
+        }
+        decompressedOffset += encoded.length;
+        offsetBuffer[i + 1] = decompressedOffset;
+    }
+
+    // Create index and nullability buffers
+    const indexBuffer = new Uint32Array(values.length);
+    const nullabilityBytes = new Uint8Array(Math.ceil(values.length / 8));
+
+    for (let i = 0; i < values.length; i++) {
+        if (values[i] !== null) {
+            indexBuffer[i] = uniqueValues.indexOf(values[i]);
+            const byteIndex = Math.floor(i / 8);
+            const bitIndex = i % 8;
+            nullabilityBytes[byteIndex] |= 1 << bitIndex;
+        } else {
+            indexBuffer[i] = 0;
+        }
+    }
+
+    const symbolOffsetBuffer = new Uint32Array([0, 0]);
+    const symbolTableBuffer = new Uint8Array(0);
+    const bitVector = new BitVector(nullabilityBytes, values.length);
+
+    return new StringFsstDictionaryVector(
+        name,
+        indexBuffer,
+        offsetBuffer,
+        dictionaryBuffer,
+        symbolOffsetBuffer,
+        symbolTableBuffer,
+        bitVector,
+    );
+}

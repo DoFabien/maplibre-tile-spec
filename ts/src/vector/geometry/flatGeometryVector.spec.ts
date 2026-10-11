@@ -7,7 +7,7 @@ import {
     FlatGeometryVector,
 } from "./flatGeometryVector";
 import { GEOMETRY_TYPE, SINGLE_PART_GEOMETRY_TYPE } from "./geometryType";
-import TopologyVector from "./topologyVector";
+import type { TopologyVector } from "./topologyVector";
 import { encodeZOrderCurve } from "../../encoding/zOrderCurveEncoder";
 import { FlatSelectionVector } from "../filter/flatSelectionVector";
 
@@ -144,7 +144,7 @@ describe("FlatGeometryVector", () => {
 function createSimpleTopology(numGeometries: number): TopologyVector {
     const offsets = new Uint32Array(numGeometries + 1);
     for (let i = 0; i <= numGeometries; i++) offsets[i] = i;
-    return new TopologyVector(offsets, offsets, offsets);
+    return topology(offsets, offsets, offsets);
 }
 
 function createVertexBuffer(numVertices: number): Int32Array {
@@ -160,4 +160,16 @@ function createVertexOffsets(numVertices: number): Int32Array {
     const offsets = new Int32Array(numVertices);
     for (let i = 0; i < numVertices; i++) offsets[i] = i;
     return offsets;
+}
+
+function topology(
+    geometryOffsets?: Uint32Array | null,
+    partOffsets?: Uint32Array | null,
+    ringOffsets?: Uint32Array | null,
+): TopologyVector {
+    return {
+        geometryOffsets: geometryOffsets ?? undefined,
+        partOffsets: partOffsets ?? undefined,
+        ringOffsets: ringOffsets ?? undefined,
+    };
 }

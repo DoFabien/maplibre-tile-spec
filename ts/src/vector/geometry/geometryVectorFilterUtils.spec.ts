@@ -9,7 +9,7 @@ import {
 } from "./geometryVectorFilterUtils";
 import { createConstGeometryVector } from "./constGeometryVector";
 import { createFlatGeometryVector } from "./flatGeometryVector";
-import TopologyVector from "./topologyVector";
+import type { TopologyVector } from "./topologyVector";
 
 describe("GeometryVectorFilterUtils", () => {
     describe("createSelectionVectorByTypeConst", () => {
@@ -268,10 +268,22 @@ function createSimpleTopology(numGeometries: number): TopologyVector {
     for (let i = 0; i <= numGeometries; i++) {
         offsets[i] = i;
     }
-    return new TopologyVector(offsets, offsets, offsets);
+    return topology(offsets, offsets, offsets);
 }
 
 /** The geometry type of each geometry of a vector. */
 function geometryTypesOf(vector: { numGeometries: number; geometryType(index: number): number }): Uint32Array {
     return Uint32Array.from({ length: vector.numGeometries }, (_, index) => vector.geometryType(index));
+}
+
+function topology(
+    geometryOffsets?: Uint32Array | null,
+    partOffsets?: Uint32Array | null,
+    ringOffsets?: Uint32Array | null,
+): TopologyVector {
+    return {
+        geometryOffsets: geometryOffsets ?? undefined,
+        partOffsets: partOffsets ?? undefined,
+        ringOffsets: ringOffsets ?? undefined,
+    };
 }

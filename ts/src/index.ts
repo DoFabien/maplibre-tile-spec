@@ -12,7 +12,6 @@ export type { Feature } from "./vector/featureTable";
 export * from "./processing/filterExports";
 export { createGeometryPartIndex } from "./vector/geometry/geometryPartIndex";
 export type { GeometryPartIndex, TopologyGeometryVector } from "./vector/geometry/geometryPartIndex";
-export { Int64ConstVector } from "./vector/constant/int64ConstVector";
 export type { MapEncodingOptions } from "./encoding/mapPropertyEncoder";
 export type {
     EncodeOptions,

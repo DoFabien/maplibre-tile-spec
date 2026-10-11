@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { FlatGpuVector, createFlatGpuVector } from "./flatGpuVector";
 import { GEOMETRY_TYPE, SINGLE_PART_GEOMETRY_TYPE } from "./geometryType";
 import { FlatSelectionVector } from "../filter/flatSelectionVector";
-import TopologyVector from "./topologyVector";
+import type { TopologyVector } from "./topologyVector";
 
 describe("FlatGpuVector", () => {
     it("creates vector via factory with all properties", () => {
@@ -128,7 +128,7 @@ function createPolygonTopology(numPolygons: number, verticesPerPolygon: number):
         partOffsets[i] = i;
         ringOffsets[i] = i * verticesPerPolygon;
     }
-    return new TopologyVector(geomOffsets, partOffsets, ringOffsets);
+    return topology(geomOffsets, partOffsets, ringOffsets);
 }
 
 function createTriangleData(numTriangles: number) {
@@ -153,4 +153,16 @@ function createTriangleData(numTriangles: number) {
         vertexBuffer[vBase + 5] = 10;
     }
     return { triangleOffsets, indexBuffer, vertexBuffer };
+}
+
+function topology(
+    geometryOffsets?: Uint32Array | null,
+    partOffsets?: Uint32Array | null,
+    ringOffsets?: Uint32Array | null,
+): TopologyVector {
+    return {
+        geometryOffsets: geometryOffsets ?? undefined,
+        partOffsets: partOffsets ?? undefined,
+        ringOffsets: ringOffsets ?? undefined,
+    };
 }

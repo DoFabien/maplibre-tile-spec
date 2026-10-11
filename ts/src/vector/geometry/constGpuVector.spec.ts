@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { ConstGpuVector, createConstGpuVector } from "./constGpuVector";
 import { GEOMETRY_TYPE, SINGLE_PART_GEOMETRY_TYPE } from "./geometryType";
 import { FlatSelectionVector } from "../filter/flatSelectionVector";
-import TopologyVector from "./topologyVector";
+import type { TopologyVector } from "./topologyVector";
 
 describe("ConstGpuVector", () => {
     describe("construction", () => {
@@ -155,7 +155,7 @@ describe("ConstGpuVector", () => {
 
 // Helper to create a simple polygon topology (1 polygon, 1 ring, n vertices)
 function createPolygonTopology(numVertices: number): TopologyVector {
-    return new TopologyVector(
+    return topology(
         new Uint32Array([0, 1]), // 1 geometry
         new Uint32Array([0, 1]), // 1 part (ring)
         new Uint32Array([0, numVertices]), // vertices in ring
@@ -168,5 +168,17 @@ function createTriangleData() {
         triangleOffsets: new Uint32Array([0, 3]), // 1 triangle (3 indices)
         indexBuffer: new Int32Array([0, 1, 2]), // triangle indices
         vertexBuffer: new Int32Array([0, 0, 10, 0, 5, 10]), // 3 vertices: (0,0), (10,0), (5,10)
+    };
+}
+
+function topology(
+    geometryOffsets?: Uint32Array | null,
+    partOffsets?: Uint32Array | null,
+    ringOffsets?: Uint32Array | null,
+): TopologyVector {
+    return {
+        geometryOffsets: geometryOffsets ?? undefined,
+        partOffsets: partOffsets ?? undefined,
+        ringOffsets: ringOffsets ?? undefined,
     };
 }
