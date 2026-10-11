@@ -109,4 +109,3 @@ export function filterSelectedByTypeFlat(
 
     selectionVector.setLimit(limit);
 }
-

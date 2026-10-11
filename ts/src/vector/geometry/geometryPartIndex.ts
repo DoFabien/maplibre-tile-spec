@@ -63,7 +63,9 @@ export function createGeometryPartIndex(geometryVector: TopologyGeometryVector):
         vertex += vertexCount;
     }
     function lineVertexCount(): number {
-        const count = hasPolygons ? offsetDiff(ringOffsets, ringOffset++, "ring") : offsetDiff(partOffsets, partOffset, "part");
+        const count = hasPolygons
+            ? offsetDiff(ringOffsets, ringOffset++, "ring")
+            : offsetDiff(partOffsets, partOffset, "part");
         partOffset++;
         return count;
     }

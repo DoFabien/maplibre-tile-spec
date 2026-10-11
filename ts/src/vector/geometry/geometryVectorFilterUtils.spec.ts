@@ -6,7 +6,7 @@ import {
     filterSelectedByTypeConst,
     createSelectionVectorByTypeFlat,
     filterSelectedByTypeFlat,
-    } from "./geometryVectorFilterUtils";
+} from "./geometryVectorFilterUtils";
 import { createConstGeometryVector } from "./constGeometryVector";
 import { createFlatGeometryVector } from "./flatGeometryVector";
 import TopologyVector from "./topologyVector";
