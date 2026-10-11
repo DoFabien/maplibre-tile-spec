@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import decodeTile from "../mltDecoder";
 import { encodeTile, type EncodeOptions, type Feature, type FeatureGeometry } from "./mltEncoder";
 import { GEOMETRY_TYPE } from "../vector/geometry/geometryType";
+import { StringDictionaryVector } from "../vector/dictionary/stringDictionaryVector";
 
 /** Encodes one layer, decodes it again, and returns the features in a comparable plain shape. */
 function roundTrip(features: Feature[], options: EncodeOptions = {}, extent = 4096) {
@@ -213,6 +214,18 @@ describe("encodeTile - ids and properties", () => {
             { geometry: point, properties: { name: "beta" } },
         ]);
         expect(decoded.map((feature) => feature.properties.name)).toEqual(["alpha", "beta"]);
+    });
+
+    it("round-trips a string column written as a dictionary", () => {
+        const features: Feature[] = ["alpha", null, "beta", "alpha"].map((name) => ({
+            geometry: point,
+            properties: { name },
+        }));
+        const tile = encodeTile([{ name: "layer", features }], { stringEncodings: { name: "dictionary" } });
+        const column = decodeTile(tile, undefined, false)[0].getPropertyVector("name");
+
+        expect(column).toBeInstanceOf(StringDictionaryVector);
+        expect([0, 1, 2, 3].map((index) => column.getValue(index))).toEqual(["alpha", null, "beta", "alpha"]);
     });
 
     it("round-trips integer properties", () => {

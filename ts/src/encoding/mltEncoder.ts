@@ -10,7 +10,7 @@ import { concatenateBuffers } from "./encodingUtils";
 import { encodeVarintInt32, encodeVarintInt32Value, encodeZigZagInt32 } from "./integerEncodingUtils";
 import { encodeChildCount, encodeFieldName, encodeTypeCode, scalarTypeCode } from "./embeddedTilesetMetadataEncoder";
 import { ColumnTypeCode } from "../metadata/tileset/typeMap";
-import { encodePlainStrings } from "./stringEncoder";
+import { encodeDictionaryStrings, encodePlainStrings } from "./stringEncoder";
 import { encodeMapPropertyColumn, type MapEncodingOptions, type MapValue } from "./mapPropertyEncoder";
 import {
     encodeBooleanColumn,
@@ -78,6 +78,8 @@ export interface EncodeOptions {
     propertyTypes?: Record<string, PropertyType>;
     /** Dictionary widths for nested columns, which the values alone do not always imply. */
     mapOptions?: MapEncodingOptions;
+    /** How each string column is written: `"plain"` (the default) or `"dictionary"`, each distinct value once. */
+    stringEncodings?: Record<string, "plain" | "dictionary">;
 }
 
 const INT32_MIN = -(2 ** 31);
@@ -133,7 +135,7 @@ function encodeLayer(layer: Layer, options: EncodeOptions): Uint8Array {
 
         const nullable = values.some((value) => value === null);
         metadata.push(encodeTypeCode(scalarTypeCode(scalarTypeOf(type), nullable)), encodeFieldName(name));
-        columns.push(encodePropertyColumn(type, values, nullable));
+        columns.push(encodePropertyColumn(type, values, nullable, options.stringEncodings?.[name]));
     }
 
     const body = concatenateBuffers(
@@ -226,11 +228,16 @@ function encodePropertyColumn(
     type: Exclude<PropertyType, "map">,
     values: PropertyValue[],
     nullable: boolean,
+    stringEncoding: "plain" | "dictionary" = "plain",
 ): Uint8Array {
     if (type === "string") {
         const strings = values.map((value) => (value === null ? null : String(value)));
         // The decoder is told how many streams the column holds; plain strings use a length and a
-        // data stream, preceded by a presence stream when the column is nullable.
+        // data stream, dictionary strings an offset stream before them, each preceded by a presence
+        // stream when the column is nullable.
+        if (stringEncoding === "dictionary") {
+            return concatenateBuffers(encodeVarintValue(nullable ? 4 : 3), encodeDictionaryStrings(strings));
+        }
         return concatenateBuffers(encodeVarintValue(nullable ? 3 : 2), encodePlainStrings(strings));
     }
 
