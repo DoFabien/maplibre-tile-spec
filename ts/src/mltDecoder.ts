@@ -27,12 +27,73 @@ import { Int64ConstVector } from "./vector/constant/int64ConstVector";
 import type GeometryScaling from "./decoding/geometryScaling";
 import { decodeBooleanRle } from "./decoding/decodingUtils";
 import { DoubleFlatVector } from "./vector/flat/doubleFlatVector";
-import { decodeEmbeddedTileSetMetadata } from "./metadata/tileset/embeddedTilesetMetadataDecoder";
+import {
+    decodeEmbeddedLayerName,
+    decodeEmbeddedTileSetMetadata,
+} from "./metadata/tileset/embeddedTilesetMetadataDecoder";
 import { hasStreamCount, isGeometryColumn, isLogicalIdColumn } from "./metadata/tileset/typeMap";
 import type { StreamMetadata } from "./metadata/tile/streamMetadataDecoder";
 import type { GeometryVector } from "./vector/geometry/geometryVector";
 import type Vector from "./vector/vector";
 import type { GpuVector } from "./vector/geometry/gpuVector";
+
+/** The position of a layer in a tile, from which {@link decodeTileLayer} decodes it alone. */
+export type TileLayerIndexEntry = {
+    name: string;
+    blockStart: number;
+    blockEnd: number;
+};
+
+/**
+ * Lists the layers of a tile by name, reading nothing of a layer but its name: the columns of a layer, and their
+ * types, are read by {@link decodeTileLayer} for the layers that are decoded.
+ */
+export function scanTileLayers(tile: Uint8Array): TileLayerIndexEntry[] {
+    const offset = new IntWrapper(0);
+    const layers: TileLayerIndexEntry[] = [];
+
+    while (offset.get() < tile.length) {
+        const blockLength = decodeVarintInt32(tile, offset, 1)[0] >>> 0;
+        const blockStart = offset.get();
+        const blockEnd = blockStart + blockLength;
+        if (blockEnd > tile.length) {
+            throw new Error(`Block overruns tile: ${blockEnd} > ${tile.length}`);
+        }
+
+        const tag = decodeVarintInt32(tile, offset, 1)[0] >>> 0;
+        if (tag === 1 || tag === 2) {
+            layers.push({ name: decodeEmbeddedLayerName(tile, offset), blockStart, blockEnd });
+        }
+        offset.set(blockEnd);
+    }
+
+    return layers;
+}
+
+/**
+ * Decodes one layer of a tile. With `propertyNames`, only these property columns are decoded with the layer;
+ * the others are decoded when the feature table is first asked for them.
+ */
+export function decodeTileLayer(
+    tile: Uint8Array,
+    layer: TileLayerIndexEntry,
+    geometryScaling?: GeometryScaling,
+    idWithinMaxSafeInteger = true,
+    propertyNames?: Set<string>,
+): FeatureTable {
+    const offset = new IntWrapper(layer.blockStart);
+    decodeVarintInt32(tile, offset, 1);
+    const [metadata, extent] = decodeEmbeddedTileSetMetadata(tile, offset);
+    return decodeFeatureTable(
+        tile,
+        offset,
+        metadata.featureTables[0],
+        extent,
+        geometryScaling,
+        idWithinMaxSafeInteger,
+        propertyNames,
+    );
+}
 
 /**
  * Decodes a tile with embedded metadata (Tag 0x01 format).
@@ -47,120 +108,172 @@ export default function decodeTile(
     geometryScaling?: GeometryScaling,
     idWithinMaxSafeInteger = true,
 ): FeatureTable[] {
-    const offset = new IntWrapper(0);
-    const featureTables: FeatureTable[] = [];
+    return scanTileLayers(tile).map((layer) => decodeTileLayer(tile, layer, geometryScaling, idWithinMaxSafeInteger));
+}
 
-    while (offset.get() < tile.length) {
-        const blockLength = decodeVarintInt32(tile, offset, 1)[0] >>> 0;
-        const blockStart = offset.get();
-        const blockEnd = blockStart + blockLength;
-        if (blockEnd > tile.length) {
-            throw new Error(`Block overruns tile: ${blockEnd} > ${tile.length}`);
-        }
+function decodeFeatureTable(
+    tile: Uint8Array,
+    offset: IntWrapper,
+    featureTableMetadata: { name?: string | null; columns: Column[] },
+    extent: number,
+    geometryScaling: GeometryScaling | undefined,
+    idWithinMaxSafeInteger: boolean,
+    propertyColumnNames: Set<string> | undefined,
+): FeatureTable {
+    const layerName = featureTableMetadata.name ?? "";
 
-        const tag = decodeVarintInt32(tile, offset, 1)[0] >>> 0;
-        if (tag !== 1 && tag !== 2) {
-            // Skip unknown block types
-            offset.set(blockEnd);
-            continue;
-        }
+    let idVector: IdVector | null = null;
+    let geometryVector: GeometryVector | GpuVector | null = null;
+    const propertyVectors: Vector[] = [];
+    const deferredPropertyColumns = new Map<string, DeferredPropertyColumn>();
+    let numFeatures = 0;
 
-        const [metadata, extent] = decodeEmbeddedTileSetMetadata(tile, offset);
-        const featureTableMetadata = metadata.featureTables[0];
+    for (const columnMetadata of featureTableMetadata.columns) {
+        const columnName = columnMetadata.name;
 
-        let idVector: IdVector | null = null;
-        let geometryVector: GeometryVector | GpuVector | null = null;
-        const propertyVectors: Vector[] = [];
-        let numFeatures = 0;
-
-        for (const columnMetadata of featureTableMetadata.columns) {
-            const columnName = columnMetadata.name;
-
-            if (isLogicalIdColumn(columnMetadata)) {
-                let nullabilityBuffer = null;
-                // Check column metadata nullable flag, not numStreams (ID columns don't have stream count)
-                if (columnMetadata.nullable) {
-                    const presentStreamMetadata = decodeStreamMetadata(tile, offset);
-                    const streamDataStart = offset.get();
-                    const values = decodeBooleanRle(
-                        tile,
-                        presentStreamMetadata.numValues,
-                        presentStreamMetadata.byteLength,
-                        offset,
-                    );
-                    offset.set(streamDataStart + presentStreamMetadata.byteLength);
-                    nullabilityBuffer = new BitVector(values, presentStreamMetadata.numValues);
-                }
-
-                const idDataStreamMetadata = decodeStreamMetadata(tile, offset);
-                // decompressedCount is the count WITHOUT nulls, but we may have nulls
-                numFeatures = nullabilityBuffer ? nullabilityBuffer.size() : idDataStreamMetadata.decompressedCount;
-
-                idVector = decodeIdColumn(
+        if (isLogicalIdColumn(columnMetadata)) {
+            let nullabilityBuffer = null;
+            // Check column metadata nullable flag, not numStreams (ID columns don't have stream count)
+            if (columnMetadata.nullable) {
+                const presentStreamMetadata = decodeStreamMetadata(tile, offset);
+                const streamDataStart = offset.get();
+                const values = decodeBooleanRle(
                     tile,
-                    columnMetadata,
+                    presentStreamMetadata.numValues,
+                    presentStreamMetadata.byteLength,
                     offset,
-                    columnName,
-                    idDataStreamMetadata,
-                    nullabilityBuffer ?? numFeatures,
-                    idWithinMaxSafeInteger,
                 );
-            } else if (isGeometryColumn(columnMetadata)) {
-                const numStreams = decodeVarintInt32(tile, offset, 1)[0];
+                offset.set(streamDataStart + presentStreamMetadata.byteLength);
+                nullabilityBuffer = new BitVector(values, presentStreamMetadata.numValues);
+            }
 
-                // If no ID column, get numFeatures from geometry type stream metadata
-                if (numFeatures === 0) {
-                    const savedOffset = offset.get();
-                    const geometryTypeMetadata = decodeStreamMetadata(tile, offset);
-                    numFeatures = geometryTypeMetadata.decompressedCount;
-                    offset.set(savedOffset); // Reset to re-read in decodeGeometryColumn
+            const idDataStreamMetadata = decodeStreamMetadata(tile, offset);
+            // decompressedCount is the count WITHOUT nulls, but we may have nulls
+            numFeatures = nullabilityBuffer ? nullabilityBuffer.size() : idDataStreamMetadata.decompressedCount;
+
+            idVector = decodeIdColumn(
+                tile,
+                columnMetadata,
+                offset,
+                columnName,
+                idDataStreamMetadata,
+                nullabilityBuffer ?? numFeatures,
+                idWithinMaxSafeInteger,
+            );
+        } else if (isGeometryColumn(columnMetadata)) {
+            const numStreams = decodeVarintInt32(tile, offset, 1)[0];
+
+            // If no ID column, get numFeatures from geometry type stream metadata
+            if (numFeatures === 0) {
+                const savedOffset = offset.get();
+                const geometryTypeMetadata = decodeStreamMetadata(tile, offset);
+                numFeatures = geometryTypeMetadata.decompressedCount;
+                offset.set(savedOffset); // Reset to re-read in decodeGeometryColumn
+            }
+
+            if (geometryScaling) {
+                geometryScaling.scale = geometryScaling.extent / extent;
+            }
+
+            geometryVector = decodeGeometryColumn(tile, numStreams, offset, numFeatures, geometryScaling);
+        } else {
+            const columnHasStreamCount = hasStreamCount(columnMetadata);
+            const numStreams = columnHasStreamCount
+                ? decodeVarintInt32(tile, offset, 1)[0]
+                : columnMetadata.nullable
+                  ? 2
+                  : 1;
+
+            if (numStreams === 0) {
+                continue;
+            }
+
+            const columnDataOffset = offset.get();
+            if (propertyColumnNames !== undefined) {
+                const deferredColumn = { columnMetadata, numStreams, columnDataOffset };
+                for (const propertyName of getColumnPropertyNames(columnMetadata)) {
+                    deferredPropertyColumns.set(propertyName, deferredColumn);
                 }
+            }
 
-                if (geometryScaling) {
-                    geometryScaling.scale = geometryScaling.extent / extent;
-                }
-
-                geometryVector = decodeGeometryColumn(tile, numStreams, offset, numFeatures, geometryScaling);
-            } else {
-                const columnHasStreamCount = hasStreamCount(columnMetadata);
-                const numStreams = columnHasStreamCount ? decodeVarintInt32(tile, offset, 1)[0] : 1;
-
-                if (numStreams === 0) {
-                    continue;
-                }
-
-                const propertyVector = decodePropertyColumn(
-                    tile,
-                    offset,
-                    columnMetadata,
-                    numStreams,
-                    numFeatures,
-                    undefined,
-                );
-                if (propertyVector) {
-                    if (Array.isArray(propertyVector)) {
-                        for (const property of propertyVector) {
-                            propertyVectors.push(property);
-                        }
-                    } else {
-                        propertyVectors.push(propertyVector);
+            const propertyVector = decodePropertyColumn(
+                tile,
+                offset,
+                columnMetadata,
+                numStreams,
+                numFeatures,
+                propertyColumnNames,
+            );
+            if (propertyVector) {
+                if (Array.isArray(propertyVector)) {
+                    for (const property of propertyVector) {
+                        propertyVectors.push(property);
                     }
+                } else {
+                    propertyVectors.push(propertyVector);
                 }
             }
         }
-
-        const featureTable = new FeatureTable(
-            featureTableMetadata.name,
-            geometryVector,
-            idVector,
-            propertyVectors,
-            extent,
-        );
-        featureTables.push(featureTable);
-        offset.set(blockEnd);
     }
 
-    return featureTables;
+    return new FeatureTable(
+        layerName,
+        geometryVector,
+        idVector,
+        propertyVectors,
+        extent,
+        deferredPropertyColumns.size === 0
+            ? undefined
+            : (propertyName) =>
+                  decodeDeferredPropertyColumn(tile, deferredPropertyColumns.get(propertyName), numFeatures),
+        deferredPropertyColumns.size === 0 ? undefined : Array.from(deferredPropertyColumns.keys()),
+    );
+}
+
+/** A property column left undecoded: its metadata, how many streams it has, and where they start in the tile. */
+type DeferredPropertyColumn = {
+    columnMetadata: Column;
+    numStreams: number;
+    columnDataOffset: number;
+};
+
+/**
+ * Decodes a column that was left aside, with every property it holds. A shared dictionary holds one property
+ * for each of its children, and decoding them together reads the dictionary once and gives all of them the
+ * same dictionary buffer.
+ */
+function decodeDeferredPropertyColumn(
+    tile: Uint8Array,
+    deferredColumn: DeferredPropertyColumn | undefined,
+    numFeatures: number,
+): Vector | Vector[] | undefined {
+    if (!deferredColumn) return undefined;
+
+    return (
+        decodePropertyColumn(
+            tile,
+            new IntWrapper(deferredColumn.columnDataOffset),
+            deferredColumn.columnMetadata,
+            deferredColumn.numStreams,
+            numFeatures,
+        ) ?? undefined
+    );
+}
+
+/**
+ * The names of the properties a column holds: its own name for a scalar column, and for a shared dictionary one
+ * name for each child, the name of the column followed by that of the child. A property may be named by the
+ * empty string, as any other string.
+ */
+function getColumnPropertyNames(columnMetadata: Column): string[] {
+    const columnName = columnMetadata.name ?? "";
+    if (columnMetadata.type === "scalarType") {
+        return [columnName];
+    }
+
+    return (columnMetadata.complexType?.children ?? []).map((child) =>
+        child.name ? `${columnName}${child.name}` : columnName,
+    );
 }
 
 function decodeIdColumn(

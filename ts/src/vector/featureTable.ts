@@ -7,6 +7,13 @@ import { Int32SequenceVector } from "./sequence/int32SequenceVector";
 import { Int32ConstVector } from "./constant/int32ConstVector";
 import type { GpuVector } from "./geometry/gpuVector";
 
+/**
+ * Decodes the property column that was left aside when its layer was decoded, given the name of one of its
+ * properties. It returns every property the column holds, which is several for a shared dictionary, or nothing
+ * when the layer has no property of that name.
+ */
+export type PropertyVectorResolver = (propertyName: string) => Vector | Vector[] | undefined;
+
 export interface Feature {
     id: number | bigint | undefined;
     geometry: Geometry;
@@ -15,6 +22,12 @@ export interface Feature {
 
 export default class FeatureTable {
     private propertyVectorsMap?: Map<string, Vector>;
+    /**
+     * Whether every property column of the layer is among the property vectors. A table without a resolver holds
+     * them all from the start, and a table with one does once {@link materializePropertyVectors} has asked the
+     * resolver for the rest.
+     */
+    private allPropertyVectorsMaterialized: boolean;
 
     constructor(
         private readonly _name: string,
@@ -22,10 +35,13 @@ export default class FeatureTable {
         private readonly _idVector?: IdVector,
         private readonly _propertyVectors?: Vector[],
         private readonly _extent = 4096,
+        private readonly propertyVectorResolver?: PropertyVectorResolver,
+        private readonly _availablePropertyNames?: readonly string[],
     ) {
         if (_name.length === 0) {
             throw new Error("Missing layer name");
         }
+        this.allPropertyVectorsMaterialized = propertyVectorResolver === undefined;
     }
 
     get name(): string {
@@ -49,7 +65,35 @@ export default class FeatureTable {
             this.propertyVectorsMap = new Map(this.propertyVectors.map((vector) => [vector.name, vector]));
         }
 
-        return this.propertyVectorsMap.get(name);
+        let propertyVector = this.propertyVectorsMap.get(name);
+        if (propertyVector || !this.propertyVectorResolver) return propertyVector;
+
+        const resolved = this.propertyVectorResolver(name);
+        if (!resolved) return undefined;
+        const resolvedVectors = Array.isArray(resolved) ? resolved : [resolved];
+        for (const vector of resolvedVectors) {
+            if (this.propertyVectorsMap.has(vector.name)) continue;
+            this.propertyVectorsMap.set(vector.name, vector);
+            this._propertyVectors?.push(vector);
+        }
+        propertyVector = this.propertyVectorsMap.get(name);
+        return propertyVector;
+    }
+
+    /** The names of all the properties of the layer, those whose column is not decoded yet included. */
+    get availablePropertyNames(): readonly string[] {
+        return this._availablePropertyNames ?? (this._propertyVectors ?? []).map((vector) => vector.name);
+    }
+
+    /** Decodes the property columns that are not decoded yet, and returns the property vectors of the whole layer. */
+    materializePropertyVectors(): Vector[] {
+        if (this.allPropertyVectorsMaterialized) return this.propertyVectors;
+
+        for (const propertyName of this.availablePropertyNames) {
+            this.getPropertyVector(propertyName);
+        }
+        this.allPropertyVectorsMaterialized = true;
+        return this.propertyVectors;
     }
 
     get numFeatures(): number {

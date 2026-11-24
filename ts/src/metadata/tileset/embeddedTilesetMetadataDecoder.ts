@@ -105,15 +105,21 @@ function decodeColumn(src: Uint8Array, offset: IntWrapper): Column {
  * @param bytes The byte array containing the metadata
  * @param offset The current offset in the byte array (will be advanced)
  */
+/** Reads the name of a layer, the first field of its embedded metadata, and rejects a layer without one. */
+export function decodeEmbeddedLayerName(bytes: Uint8Array, offset: IntWrapper): string {
+    const name = decodeString(bytes, offset);
+    if (name.length === 0) {
+        throw new Error("Missing layer name");
+    }
+    return name;
+}
+
 export function decodeEmbeddedTileSetMetadata(bytes: Uint8Array, offset: IntWrapper): [TileSetMetadata, number] {
     const meta = {} as TileSetMetadata;
     meta.featureTables = [];
 
     const table = {} as FeatureTableSchema;
-    table.name = decodeString(bytes, offset);
-    if (table.name.length === 0) {
-        throw new Error("Missing layer name");
-    }
+    table.name = decodeEmbeddedLayerName(bytes, offset);
     const extent = decodeVarintInt32(bytes, offset, 1)[0] >>> 0;
 
     const columnCount = decodeVarintInt32(bytes, offset, 1)[0] >>> 0;

@@ -5,11 +5,32 @@ import { parse, join } from "node:path";
 import { VectorTile, type VectorTileFeature } from "@mapbox/vector-tile";
 import { PbfReader } from "pbf";
 
-import { type FeatureTable, type Feature, decodeTile } from ".";
+import { type FeatureTable, type Feature, decodeTile, encodeTile } from ".";
+import { decodeTileLayer, scanTileLayers } from "./mltDecoder";
+import IntWrapper from "./decoding/intWrapper";
+import { decodeVarintInt32 } from "./decoding/integerDecodingUtils";
 import path from "node:path";
 import fs from "node:fs";
 
 const ITERATOR_TILE = path.resolve(__dirname, "../../test/expected/0x01/simple/multiline-boolean.mlt");
+/** An OpenMapTiles tile whose `place` layer stores its `name:*` properties as the children of a shared dictionary. */
+const SHARED_DICTIONARY_TILE = path.resolve(__dirname, "../../test/expected/0x01/omt/10_530_682.mlt");
+
+/** A layer whose vertex m-values have a column type that this decoder does not read. */
+const UNREADABLE_LAYER_TILE = path.resolve(__dirname, "../../test/synthetic/0x02/mesh_mvalues_vertex.mlt");
+
+/** A tile of one layer of two points, each with a `rank` and a `height`. */
+function pointsTile(): Uint8Array {
+    return encodeTile([
+        {
+            name: "points",
+            features: [
+                { geometry: { type: "Point", coordinates: [1, 2] }, properties: { rank: 7, height: 10 } },
+                { geometry: { type: "Point", coordinates: [3, 4] }, properties: { rank: 8, height: 20 } },
+            ],
+        },
+    ]);
+}
 
 describe("MLT Decoder - MVT comparison for SIMPLE tiles", () => {
     const simpleMltTileDir = "../test/expected/0x01/simple";
@@ -55,6 +76,130 @@ describe("FeatureTable", () => {
             featureCount++;
         }
         assert.equal(featureCount, table.numFeatures);
+    });
+
+    it("should scan tile layers and decode one of them alone", () => {
+        const bytes = new Uint8Array(fs.readFileSync(ITERATOR_TILE));
+        const layers = scanTileLayers(bytes);
+
+        assert.deepEqual(
+            layers.map((layer) => layer.name),
+            ["layer"],
+        );
+        assert.deepEqual(decodeTileLayer(bytes, layers[0]).getFeatures(), decodeTile(bytes)[0].getFeatures());
+    });
+
+    it("should scan the layers of a tile and decode one of them next to a layer whose columns it cannot read", () => {
+        const points = pointsTile();
+        const unreadable = new Uint8Array(fs.readFileSync(UNREADABLE_LAYER_TILE));
+        const bytes = new Uint8Array(points.length + unreadable.length);
+        bytes.set(points);
+        bytes.set(unreadable, points.length);
+
+        const layers = scanTileLayers(bytes);
+
+        assert.deepEqual(
+            layers.map((layer) => layer.name),
+            ["points", scanTileLayers(unreadable)[0].name],
+        );
+        assert.deepEqual(decodeTileLayer(bytes, layers[0]).getFeatures(), decodeTile(points)[0].getFeatures());
+        assert.throws(() => decodeTileLayer(bytes, layers[1]));
+    });
+
+    it("should read the layers of tag 2 blocks as those of tag 1 blocks", () => {
+        const bytes = new Uint8Array(fs.readFileSync(ITERATOR_TILE));
+        const tag2Bytes = bytes.slice();
+        const tagOffset = new IntWrapper(0);
+        decodeVarintInt32(tag2Bytes, tagOffset, 1);
+        tag2Bytes[tagOffset.get()] = 2;
+
+        assert.deepEqual(
+            scanTileLayers(tag2Bytes).map((layer) => layer.name),
+            ["layer"],
+        );
+        assert.deepEqual(decodeTile(tag2Bytes)[0].getFeatures(), decodeTile(bytes)[0].getFeatures());
+    });
+
+    it("should decode only the requested property columns with the layer", () => {
+        const bytes = pointsTile();
+        const [layer] = scanTileLayers(bytes);
+
+        const featureTable = decodeTileLayer(bytes, layer, undefined, true, new Set(["height"]));
+
+        assert.deepEqual(
+            featureTable.propertyVectors.map((vector) => vector.name),
+            ["height"],
+        );
+    });
+
+    it("should decode no property column with the layer when none is requested, and still name them all", () => {
+        const bytes = pointsTile();
+        const [layer] = scanTileLayers(bytes);
+
+        const featureTable = decodeTileLayer(bytes, layer, undefined, true, new Set());
+
+        assert.deepEqual(featureTable.propertyVectors, []);
+        assert.deepEqual(featureTable.availablePropertyNames, ["rank", "height"]);
+    });
+
+    it("should decode a property column left aside when it is asked for, and return the same vector afterwards", () => {
+        const bytes = pointsTile();
+        const [layer] = scanTileLayers(bytes);
+        const featureTable = decodeTileLayer(bytes, layer, undefined, true, new Set());
+
+        const height = featureTable.getPropertyVector("height");
+
+        assert.deepEqual([height?.getValue(0), height?.getValue(1)], [10, 20]);
+        assert.deepEqual(featureTable.propertyVectors, [height]);
+        assert.equal(featureTable.getPropertyVector("height"), height);
+    });
+
+    it("should return no vector for a property the layer does not have", () => {
+        const bytes = pointsTile();
+        const [layer] = scanTileLayers(bytes);
+        const featureTable = decodeTileLayer(bytes, layer, undefined, true, new Set());
+
+        assert.equal(featureTable.getPropertyVector("missing"), undefined);
+    });
+
+    it("should skip both streams of a nullable column that is not requested and has no stream count", () => {
+        const bytes = encodeTile([
+            {
+                name: "points",
+                features: [
+                    { geometry: { type: "Point", coordinates: [1, 2] }, properties: { rank: 7, height: 10 } },
+                    { geometry: { type: "Point", coordinates: [3, 4] }, properties: { rank: null, height: 20 } },
+                ],
+            },
+        ]);
+        const [layer] = scanTileLayers(bytes);
+
+        const featureTable = decodeTileLayer(bytes, layer, undefined, true, new Set(["height"]));
+
+        assert.deepEqual(
+            featureTable.getFeatures().map((feature) => feature.properties),
+            [{ height: 10 }, { height: 20 }],
+        );
+    });
+
+    it("should decode a deferred shared dictionary once for all its properties", () => {
+        const bytes = new Uint8Array(fs.readFileSync(SHARED_DICTIONARY_TILE));
+        const layer = scanTileLayers(bytes).find((entry) => entry.name === "place");
+        assert.ok(layer);
+        const fullFeatureTable = decodeTileLayer(bytes, layer);
+        const names = fullFeatureTable.propertyVectors.map((vector) => vector.name);
+        const [kept, first, second] = names.filter((name) => name.startsWith("name:"));
+        assert.ok(second);
+
+        const featureTable = decodeTileLayer(bytes, layer, undefined, true, new Set([kept]));
+        const keptVector = featureTable.getPropertyVector(kept);
+        const firstVector = featureTable.getPropertyVector(first);
+
+        assert.ok(firstVector);
+        assert.ok(featureTable.propertyVectors.some((vector) => vector.name === second));
+        assert.equal(firstVector.getValue(0), fullFeatureTable.getPropertyVector(first)?.getValue(0));
+        assert.equal(featureTable.getPropertyVector(kept), keptVector);
+        assert.equal(featureTable.propertyVectors.filter((vector) => vector.name === kept).length, 1);
     });
 });
 
