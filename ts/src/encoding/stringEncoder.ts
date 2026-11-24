@@ -67,14 +67,25 @@ export function encodeDictionaryStrings(strings: (string | null)[]): Uint8Array 
         }
         offsets[count++] = code;
     }
-    const hasNull = count < strings.length;
-    const { bytes: stringBytes, lengths } = encodeUtf8Strings(uniqueStrings);
+    return encodeDictionaryCodes(
+        uniqueStrings,
+        offsets.subarray(0, count),
+        count < strings.length ? strings.map((s) => s !== null) : undefined,
+    );
+}
+
+/**
+ * Encodes a dictionary column from its entries and, for each feature with a value, the code of its entry. `present`
+ * says which features have a value, and is left out when all of them do.
+ */
+export function encodeDictionaryCodes(entries: readonly string[], codes: Uint32Array, present?: boolean[]): Uint8Array {
+    const { bytes: stringBytes, lengths } = encodeUtf8Strings(entries);
 
     const streams: Uint8Array[] = [];
 
     // Add PRESENT stream if nulls exist
-    if (hasNull) {
-        streams.push(encodePresentStream(strings.map((s) => s !== null)));
+    if (present) {
+        streams.push(encodePresentStream(present));
     }
 
     // Add LENGTH stream (for dictionary)
@@ -88,10 +99,10 @@ export function encodeDictionaryStrings(strings: (string | null)[]): Uint8Array 
 
     // Add OFFSET stream
     streams.push(
-        createStream(PhysicalStreamType.OFFSET, encodeVarintInt32(offsets.subarray(0, count)), {
+        createStream(PhysicalStreamType.OFFSET, encodeVarintInt32(codes), {
             logical: { offsetType: OffsetType.STRING },
             technique: PhysicalLevelTechnique.VARINT,
-            count,
+            count: codes.length,
         }),
     );
 

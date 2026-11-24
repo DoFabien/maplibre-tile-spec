@@ -5,7 +5,7 @@ import decodeTile from "./mltDecoder";
 import { GEOMETRY_TYPE } from "./vector/geometry/geometryType";
 import type { Feature } from "./vector/featureTable";
 import { decodeTileColumns, type MltColumnLayer, type MltPropertyColumn } from "./columns";
-import { encodeTile, type Layer, type PropertyValue } from "./encoding/mltEncoder";
+import { encodeTile, encodeTileColumns, type Layer, type PropertyValue } from "./encoding/mltEncoder";
 
 const FIXTURE_TILES = path.resolve(__dirname, "../../test/expected/0x01");
 const SHARED_DICTIONARY_TILE = path.join(FIXTURE_TILES, "omt/10_530_682.mlt");
@@ -179,5 +179,90 @@ describe("decodeTileColumns", () => {
         expect("codes" in german && "codes" in english && german.dictionary).toBe(
             "codes" in english && english.dictionary,
         );
+    });
+
+    it("reads back the layers encodeTileColumns writes of the layers it read", () => {
+        const tile = readTile(SHARED_DICTIONARY_TILE);
+        for (const stringCodes of [false, true]) {
+            const { layers } = decodeTileColumns(tile, { stringCodes });
+            const written = decodeTileColumns(encodeTileColumns(layers), { stringCodes });
+
+            expect(written.layers.map(readLayer)).toEqual(layers.map(readLayer));
+        }
+    });
+
+    it("reads back the boolean, integer and float columns encodeTileColumns writes, with their types, with and without absent values", () => {
+        const layer: MltColumnLayer = {
+            name: "points",
+            extent: 4096,
+            featureCount: 3,
+            geometry: { types: Uint8Array.of(0, 0, 0), dimension: 2, vertices: Int32Array.of(1, 2, 3, 4, 5, 6) },
+            properties: [
+                { name: "open", type: "bool", values: Uint8Array.of(1, 0, 1) },
+                { name: "lit", type: "bool", values: Uint8Array.of(1, 0, 0), present: Uint8Array.of(0b011) },
+                { name: "floors", type: "i32", values: Int32Array.of(-1, 0, 3) },
+                { name: "visitors", type: "u32", values: Uint32Array.of(0, 7, 3_000_000_000) },
+                {
+                    name: "rank",
+                    type: "u32",
+                    values: Uint32Array.of(4, 0, 3_000_000_000),
+                    present: Uint8Array.of(0b101),
+                },
+                { name: "width", type: "f32", values: Float32Array.of(0.5, 1.5, 2.5) },
+                { name: "height", type: "f32", values: Float32Array.of(1.5, 0, 2.5), present: Uint8Array.of(0b101) },
+            ],
+        };
+
+        const [written] = decodeTileColumns(encodeTileColumns([layer])).layers;
+
+        expect(readLayer(written)).toEqual(readLayer(layer));
+        expect(written.properties.map((column) => column.type)).toEqual(layer.properties.map((column) => column.type));
+    });
+
+    it("reads back the ids encodeTileColumns writes of a layer some features of which have none", () => {
+        const layer: MltColumnLayer = {
+            name: "points",
+            extent: 4096,
+            featureCount: 3,
+            geometry: { types: Uint8Array.of(0, 0, 0), dimension: 2, vertices: Int32Array.of(1, 2, 3, 4, 5, 6) },
+            ids: { values: Float64Array.of(7, 0, 9), present: Uint8Array.of(0b101) },
+            properties: [],
+        };
+
+        const [written] = decodeTileColumns(encodeTileColumns([layer])).layers;
+
+        expect(featureIds(written)).toEqual([7, null, 9]);
+    });
+
+    it("writes the largest unsigned 64-bit id, which a double rounds up to 2 ** 64, as the largest the format holds", () => {
+        const layers: MltColumnLayer[] = [true, false].map((withAbsentIds) => ({
+            name: withAbsentIds ? "with absent ids" : "without absent ids",
+            extent: 4096,
+            featureCount: 3,
+            geometry: { types: Uint8Array.of(0, 0, 0), dimension: 2, vertices: Int32Array.of(1, 2, 3, 4, 5, 6) },
+            ids: { values: Float64Array.of(0, 2 ** 64, 5), present: withAbsentIds ? Uint8Array.of(0b011) : undefined },
+            properties: [],
+        }));
+
+        const written = decodeTileColumns(encodeTileColumns(layers)).layers;
+
+        expect(written.map(featureIds)).toEqual([
+            [0, 2 ** 64, null],
+            [0, 2 ** 64, 5],
+        ]);
+    });
+
+    it("writes a column whose features all have a value as one without absent values", () => {
+        const layer: MltColumnLayer = {
+            name: "points",
+            extent: 4096,
+            featureCount: 2,
+            geometry: { types: Uint8Array.of(0, 0), dimension: 2, vertices: Int32Array.of(1, 2, 3, 4) },
+            properties: [{ name: "name", type: "string", values: ["a", "b"], present: Uint8Array.of(0b11) }],
+        };
+
+        const [written] = decodeTileColumns(encodeTileColumns([layer])).layers;
+
+        expect(written.properties).toEqual([{ name: "name", type: "string", values: ["a", "b"] }]);
     });
 });

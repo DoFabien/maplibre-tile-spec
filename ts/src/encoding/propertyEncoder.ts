@@ -110,6 +110,13 @@ export function encodeUint32Column(values: Uint32Array): Uint8Array {
 }
 
 /**
+ * Encodes nullable UINT_32 values
+ */
+export function encodeUint32NullableColumn(values: (number | null)[]): Uint8Array {
+    return encodeNullableColumn(values, (present) => encodeUint32Column(Uint32Array.from(present)));
+}
+
+/**
  * Encodes INT_64 values with NONE encoding
  */
 export function encodeInt64NoneColumn(values: BigInt64Array): Uint8Array {

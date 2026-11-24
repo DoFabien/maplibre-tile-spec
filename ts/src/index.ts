@@ -9,7 +9,7 @@ export type {
     MltGeometryColumns,
     MltPropertyColumn,
 } from "./columns";
-export { encodeTile } from "./encoding/mltEncoder";
+export { encodeTile, encodeTileColumns } from "./encoding/mltEncoder";
 export { default as FeatureTable } from "./vector/featureTable";
 export { GeometryVector } from "./vector/geometry/geometryVector";
 export { GpuVector } from "./vector/geometry/gpuVector";
