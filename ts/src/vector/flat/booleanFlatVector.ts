@@ -1,5 +1,6 @@
 import type BitVector from "./bitVector";
 import Vector from "../vector";
+import type { MltColumnType } from "../../columns";
 
 export class BooleanFlatVector extends Vector<Uint8Array, boolean> {
     private readonly dataVector: BitVector;
@@ -11,5 +12,9 @@ export class BooleanFlatVector extends Vector<Uint8Array, boolean> {
 
     protected getValueFromBuffer(index: number): boolean {
         return this.dataVector.get(index);
+    }
+
+    protected columnType(): MltColumnType {
+        return "bool";
     }
 }

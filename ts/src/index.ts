@@ -1,4 +1,14 @@
 export { default as decodeTile } from "./mltDecoder";
+export { decodeTileColumns } from "./columns";
+export type {
+    DecodeTileColumnsOptions,
+    MltColumn,
+    MltColumnLayer,
+    MltColumnTile,
+    MltColumnType,
+    MltGeometryColumns,
+    MltPropertyColumn,
+} from "./columns";
 export { encodeTile } from "./encoding/mltEncoder";
 export { default as FeatureTable } from "./vector/featureTable";
 export { GeometryVector } from "./vector/geometry/geometryVector";

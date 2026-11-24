@@ -194,9 +194,13 @@ describe("FeatureTable", () => {
         const featureTable = decodeTileLayer(bytes, layer, undefined, true, new Set([kept]));
         const keptVector = featureTable.getPropertyVector(kept);
         const firstVector = featureTable.getPropertyVector(first);
+        const secondVector = featureTable.getPropertyVector(second);
 
-        assert.ok(firstVector);
-        assert.ok(featureTable.propertyVectors.some((vector) => vector.name === second));
+        const firstColumn = firstVector?.toColumn(true);
+        const secondColumn = secondVector?.toColumn(true);
+        assert.ok(firstColumn && "codes" in firstColumn);
+        assert.ok(secondColumn && "codes" in secondColumn);
+        assert.equal(firstColumn.dictionary, secondColumn.dictionary);
         assert.equal(firstVector.getValue(0), fullFeatureTable.getPropertyVector(first)?.getValue(0));
         assert.equal(featureTable.getPropertyVector(kept), keptVector);
         assert.equal(featureTable.propertyVectors.filter((vector) => vector.name === kept).length, 1);

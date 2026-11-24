@@ -21,4 +21,8 @@ export class ObjectFlatVector extends Vector<Uint8Array, unknown> {
     protected getValueFromBuffer(index: number): unknown {
         return this.values[index];
     }
+
+    protected columnType(): undefined {
+        return undefined;
+    }
 }

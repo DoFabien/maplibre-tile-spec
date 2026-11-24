@@ -1,6 +1,7 @@
 import { VariableSizeVector } from "../variableSizeVector";
 import type BitVector from "./bitVector";
 import { decodeString } from "../../decoding/decodingUtils";
+import type { MltColumnType } from "../../columns";
 
 export class StringFlatVector extends VariableSizeVector<Uint8Array, string> {
     constructor(name: string, offsetBuffer: Uint32Array, dataBuffer: Uint8Array, nullabilityBuffer?: BitVector) {
@@ -11,5 +12,9 @@ export class StringFlatVector extends VariableSizeVector<Uint8Array, string> {
         const start = this.offsetBuffer[index];
         const end = this.offsetBuffer[index + 1];
         return decodeString(this.dataBuffer, start, end);
+    }
+
+    protected columnType(): MltColumnType {
+        return "string";
     }
 }

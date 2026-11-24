@@ -2,6 +2,8 @@ import { VariableSizeVector } from "../variableSizeVector";
 import type BitVector from "../flat/bitVector";
 import { decodeFsst } from "../../decoding/fsstDecoder";
 import { decodeString } from "../../decoding/decodingUtils";
+import { dictionaryStrings } from "../dictionary/dictionaryStrings";
+import type { MltColumnType, MltPropertyColumn } from "../../columns";
 
 /** Mutable cache shared by the FSST child columns of one SharedDict. */
 export type FsstDictionaryCache = {
@@ -29,20 +31,31 @@ export class StringFsstDictionaryVector extends VariableSizeVector<Uint8Array, s
     }
 
     protected getValueFromBuffer(index: number): string {
-        if (this.decodedDictionary == null) {
-            this.decodedDictionary = this.sharedDictionaryCache?.decodedDictionary;
-            if (this.decodedDictionary == null) {
-                this.decodedDictionary = this.decodeDictionary();
-                if (this.sharedDictionaryCache) {
-                    this.sharedDictionaryCache.decodedDictionary = this.decodedDictionary;
-                }
-            }
-        }
-
         const offset = this.indexBuffer[index];
-        const start = this.offsetBuffer[offset];
-        const end = this.offsetBuffer[offset + 1];
-        return decodeString(this.decodedDictionary, start, end);
+        return decodeString(this.dictionaryBytes(), this.offsetBuffer[offset], this.offsetBuffer[offset + 1]);
+    }
+
+    protected columnType(): MltColumnType {
+        return "string";
+    }
+
+    /** With `stringCodes`, the vector as codes into its dictionary, which the vectors of a shared dictionary share. */
+    toColumn(stringCodes: boolean): MltPropertyColumn | undefined {
+        if (!stringCodes) return super.toColumn(stringCodes);
+        return {
+            name: this.name,
+            type: "string",
+            codes: this.indexBuffer,
+            dictionary: dictionaryStrings(this.dictionaryBytes(), this.offsetBuffer),
+            present: this.nullabilityBuffer?.getBuffer(),
+        };
+    }
+
+    /** The decoded dictionary, decoded on first use once for all the vectors of a shared dictionary. */
+    private dictionaryBytes(): Uint8Array {
+        this.decodedDictionary ??= this.sharedDictionaryCache?.decodedDictionary ?? this.decodeDictionary();
+        if (this.sharedDictionaryCache) this.sharedDictionaryCache.decodedDictionary = this.decodedDictionary;
+        return this.decodedDictionary;
     }
 
     private decodeDictionary(): Uint8Array {
