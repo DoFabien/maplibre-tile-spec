@@ -20,8 +20,11 @@ export type TypedArrayInstance =
     | Float64Array;
 
 /**
- * Generic unpacking function.
- * Reconstructs the full array by inserting default values at null positions.
+ * Reconstructs the full array of a nullable column, placing each value of the compact data stream at the position of
+ * its presence bit and the default value at the positions that have none.
+ *
+ * The presence bits are read a byte at a time, so that eight absent positions cost one comparison and eight present
+ * ones are copied without testing their bits.
  *
  * @param dataStream The compact data stream containing only non-null values
  * @param presentBits BitVector indicating which positions have values (null if non-nullable)
@@ -33,20 +36,34 @@ export function unpackNullable<T extends TypedArrayInstance>(
     presentBits: BitVector | null,
     defaultValue: number | bigint,
 ): T {
-    // Non-nullable case: return data stream as-is
     if (!presentBits) {
         return dataStream;
     }
 
     const size = presentBits.size();
-    // Create new array of same type with full size
     const constructor = dataStream.constructor as TypedArrayConstructor;
     const result = new constructor(size) as T;
+    if (defaultValue !== 0 && defaultValue !== 0n) {
+        result.fill(defaultValue as never);
+    }
 
+    const presence = presentBits.getBuffer();
+    const numBytes = (size + 7) >> 3;
+    const lastByteMask = 0xff >> ((numBytes << 3) - size);
     let counter = 0;
-    for (let i = 0; i < size; i++) {
-        // If position has a value, take from data stream; otherwise use default
-        result[i] = presentBits.get(i) ? dataStream[counter++] : defaultValue;
+    for (let byteIndex = 0; byteIndex < numBytes; byteIndex++) {
+        const position = byteIndex << 3;
+        let bits = presence[byteIndex] & (byteIndex === numBytes - 1 ? lastByteMask : 0xff);
+        if (bits === 0xff) {
+            for (let bit = 0; bit < 8; bit++) {
+                result[position + bit] = dataStream[counter++];
+            }
+            continue;
+        }
+
+        for (; bits !== 0; bits &= bits - 1) {
+            result[position + 31 - Math.clz32(bits & -bits)] = dataStream[counter++];
+        }
     }
 
     return result;

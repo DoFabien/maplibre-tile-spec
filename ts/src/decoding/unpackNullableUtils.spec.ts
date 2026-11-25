@@ -47,6 +47,24 @@ describe("unpackNullableUtils", () => {
 
             expect(result).toEqual(new Int32Array([0, 20, 30]));
         });
+
+        it("should place the values across full, empty and partial presence bytes, ignoring the bits past the size", () => {
+            const dataStream = new Uint32Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+            const presentBits = new BitVector(new Uint8Array([0xff, 0x00, 0b10100001, 0b11111010]), 27);
+            const result = unpackNullable(dataStream, presentBits, 0);
+
+            expect(Array.from(result)).toEqual([
+                1, 2, 3, 4, 5, 6, 7, 8, 0, 0, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 10, 0, 11, 0, 0, 0,
+            ]);
+        });
+
+        it("should insert a default value other than zero at null positions", () => {
+            const dataStream = new Float64Array([1.5, 2.5]);
+            const presentBits = new BitVector(new Uint8Array([0b1001]), 4);
+            const result = unpackNullable(dataStream, presentBits, -1);
+
+            expect(result).toEqual(new Float64Array([1.5, -1, -1, 2.5]));
+        });
     });
 
     describe("unpackNullableBoolean", () => {
